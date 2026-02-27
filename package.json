@@ -70,7 +70,7 @@
     "cache": "false"
   },
   "scripts": {
-    "build": "bash build.sh"
+    "build": "next build"
   },
   "cache": "false"
 }
