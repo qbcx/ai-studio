@@ -2,14 +2,6 @@
   "name": "ai-studio",
   "version": "0.2.0",
   "private": true,
-  "scripts": {
-    "dev": "next dev -p 3000",
-    "build": "next build && rm -rf .next/cache",
-    "start": "next start",
-    "lint": "eslint .",
-    "pages:build": "npx @cloudflare/next-on-pages",
-    "pages:deploy": "npm run pages:build && wrangler pages deploy .vercel/output/static"
-  },
   "dependencies": {
     "@hookform/resolvers": "^5.1.1",
     "@radix-ui/react-accordion": "^1.2.11",
@@ -55,7 +47,11 @@
     "tailwindcss-animate": "^1.0.7",
     "z-ai-web-dev-sdk": "^0.0.16",
     "zod": "^4.0.2",
-    "zustand": "^5.0.6"
+    "zustand": "^5.0.6",
+    "scripts": {
+      "build": "next build"
+    },
+    "cache": "false"
   },
   "devDependencies": {
     "@cloudflare/next-on-pages": "^1.13.16",
@@ -67,6 +63,14 @@
     "tailwindcss": "^4",
     "tw-animate-css": "^1.3.5",
     "typescript": "^5",
-    "wrangler": "^3.0.0"
-  }
+    "wrangler": "^3.0.0",
+    "scripts": {
+      "build": "next build"
+    },
+    "cache": "false"
+  },
+  "scripts": {
+    "build": "next build"
+  },
+  "cache": "false"
 }
