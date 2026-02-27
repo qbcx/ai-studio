@@ -70,8 +70,7 @@
     "cache": "false"
   },
   "scripts": {
-    "build": "next build"
+    "build": "next build && rm -rf .next/cache"
   },
   "cache": "false"
 }
-
