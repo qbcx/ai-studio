@@ -49,7 +49,7 @@ const SIZES = [
 
 // Provider options
 const IMAGE_PROVIDERS = [
-  { id: 'pollinations', name: 'Pollinations (Free)', needsKey: false },
+  { id: 'pollinations', name: 'Pollinations (Free)', needsKey: false, warning: 'May be slow/unavailable' },
   { id: 'openai', name: 'OpenAI DALL-E', needsKey: true },
   { id: 'zhipu', name: 'Zhipu AI', needsKey: true },
   { id: 'stability', name: 'Stability AI', needsKey: true },

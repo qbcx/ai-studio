@@ -24,21 +24,77 @@ export async function POST(request: Request) {
     switch (provider) {
       case 'pollinations': {
         // Pollinations.ai - Free, no API key needed
-        // Use simple URL format for better compatibility
+        // Fetch server-side to avoid CORS/Cloudflare blocking issues
         const encodedPrompt = encodeURIComponent(cleanPrompt);
-        const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true&seed=${seed}`;
 
-        console.log('[ImageGen] Pollinations URL:', imageUrl);
+        // Try the image.pollinations.ai endpoint
+        const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true&seed=${seed}&model=flux`;
 
-        return NextResponse.json({
-          success: true,
-          data: {
-            image: imageUrl,
-            prompt: cleanPrompt,
-            size: size
-          },
-          timestamp: new Date().toISOString()
-        });
+        console.log('[ImageGen] Fetching from Pollinations:', pollinationsUrl);
+
+        try {
+          // Fetch the image server-side with timeout
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
+
+          const imageResponse = await fetch(pollinationsUrl, {
+            signal: controller.signal,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              'Accept': 'image/*'
+            }
+          });
+
+          clearTimeout(timeoutId);
+
+          if (imageResponse.ok) {
+            // Convert to base64 data URL
+            const imageBuffer = await imageResponse.arrayBuffer();
+            const base64 = btoa(
+              new Uint8Array(imageBuffer).reduce(
+                (data, byte) => data + String.fromCharCode(byte),
+                ''
+              )
+            );
+            const dataUrl = `data:image/png;base64,${base64}`;
+
+            return NextResponse.json({
+              success: true,
+              data: {
+                image: dataUrl,
+                prompt: cleanPrompt,
+                size: size
+              },
+              timestamp: new Date().toISOString()
+            });
+          } else {
+            console.log('[ImageGen] Pollinations returned:', imageResponse.status);
+            // Return URL anyway, let client try
+            return NextResponse.json({
+              success: true,
+              data: {
+                image: pollinationsUrl,
+                prompt: cleanPrompt,
+                size: size
+              },
+              timestamp: new Date().toISOString(),
+              warning: 'Image may take time to load. If it fails, try again or use a different provider.'
+            });
+          }
+        } catch (fetchError) {
+          console.error('[ImageGen] Pollinations fetch error:', fetchError);
+          // Return URL anyway as fallback
+          return NextResponse.json({
+            success: true,
+            data: {
+              image: pollinationsUrl,
+              prompt: cleanPrompt,
+              size: size
+            },
+            timestamp: new Date().toISOString(),
+            warning: 'Image may take time to load. If it fails, try again or use a different provider.'
+          });
+        }
       }
 
       case 'openai': {
