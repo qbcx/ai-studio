@@ -485,6 +485,13 @@ export default function StudioPage() {
                       src={item.image}
                       alt={item.prompt}
                       className="w-full h-full object-cover"
+                      onLoad={(e) => {
+                        (e.target as HTMLImageElement).style.opacity = '1'
+                      }}
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><text x="50%" y="50%" text-anchor="middle" fill="%23999">Failed to load</text></svg>'
+                      }}
+                      style={{ opacity: 0, transition: 'opacity 0.5s' }}
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
                       <div className="absolute bottom-0 left-0 right-0 p-3">

@@ -3,7 +3,7 @@ export const runtime = 'edge';
 import { NextResponse } from 'next/server';
 
 // POST /api/generate-image
-// Simple, reliable image generation using Pollinations
+// Generates an image using Pollinations.ai (free, no API key required)
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -17,24 +17,29 @@ export async function POST(request: Request) {
     }
 
     const [width, height] = size.split('x').map(Number);
-    const seed = Math.floor(Math.random() * 100000000);
     const cleanPrompt = prompt.trim();
+    const seed = Math.floor(Math.random() * 999999999);
 
-    // Pollinations.ai - Works reliably, no key needed
-    const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?width=${width}&height=${height}&seed=${seed}&nologo=true&enhance=true`;
+    // Build Pollinations URL
+    // Format: https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&model=flux&seed=123&nologo=true
+    const encodedPrompt = encodeURIComponent(cleanPrompt);
+    const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&model=flux&seed=${seed}&nologo=true`;
 
+    console.log('[ImageGen] Generated URL:', imageUrl);
+
+    // Return the image URL directly - browser will load it
     return NextResponse.json({
       success: true,
       data: {
         image: imageUrl,
         prompt: cleanPrompt,
-        size
+        size: size
       },
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
-    console.error('Image generation error:', error);
+    console.error('[ImageGen] Error:', error);
     return NextResponse.json({
       success: false,
       error: 'Something went wrong. Please try again.'
