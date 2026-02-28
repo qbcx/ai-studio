@@ -93,38 +93,41 @@ export async function POST(request: Request) {
     // Zhipu AI CogVideoX
     if (provider === 'zhipu') {
       try {
-        // Correct endpoint: /api/paas/v4/videos/generations (with 's' in videos)
-        const response = await fetch('https://open.bigmodel.cn/api/paas/v4/videos/generations', {
+        // Try the standard endpoint format
+        const response = await fetch('https://open.bigmodel.cn/api/paas/v4/video/generations', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiKey}`,
           },
           body: JSON.stringify({
-            model: 'cogvideox-3',  // Updated model name
+            model: 'cogvideox',
             prompt: cleanPrompt,
-            quality: 'speed',  // Options: 'speed' or 'quality'
           }),
         });
 
+        // Log the response for debugging
+        console.log('[VideoGen] Zhipu response status:', response.status);
+
         if (!response.ok) {
           const errorText = await response.text();
+          console.error('[VideoGen] Zhipu error:', errorText);
           let errorMessage = `Zhipu AI error (${response.status})`;
 
           try {
             const errorJson = JSON.parse(errorText);
-            errorMessage = errorJson.error?.message || errorJson.message || errorMessage;
+            errorMessage = errorJson.error?.message || errorJson.message || errorJson.error || errorMessage;
           } catch {
             if (errorText) errorMessage = errorText.slice(0, 200);
           }
 
-          // Return 400 with clear error message, don't pass through external status
+          // Return 400 with clear error message
           return NextResponse.json({
             success: false,
             error: response.status === 401
               ? 'Invalid Zhipu AI API key. Check your key at open.bigmodel.cn'
               : response.status === 404
-                ? 'Zhipu AI video endpoint not found. API may have changed.'
+                ? 'Zhipu AI video endpoint not found.'
                 : response.status === 429
                   ? 'Zhipu AI rate limit exceeded. Please wait.'
                   : errorMessage
@@ -132,6 +135,8 @@ export async function POST(request: Request) {
         }
 
         const data = await response.json();
+        console.log('[VideoGen] Zhipu response:', JSON.stringify(data).slice(0, 500));
+
         const taskId = data.id || data.task_id || data.data?.id;
 
         if (!taskId) {

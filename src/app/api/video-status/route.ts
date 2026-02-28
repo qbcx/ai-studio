@@ -65,8 +65,7 @@ export async function GET(request: Request) {
 
     // Handle different providers
     if (provider === 'zhipu') {
-      // Correct endpoint: /api/paas/v4/videos/generations (with 's' in videos)
-      const response = await fetch(`https://open.bigmodel.cn/api/paas/v4/videos/generations/${taskId}`, {
+      const response = await fetch(`https://open.bigmodel.cn/api/paas/v4/video/generations/${taskId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
