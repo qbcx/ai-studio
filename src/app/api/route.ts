@@ -1,4 +1,5 @@
-export const runtime = 'edge';
+// Cloudflare Pages handles this automatically
+// export const runtime = 'edge';
 
 import { NextResponse } from 'next/server';
 
