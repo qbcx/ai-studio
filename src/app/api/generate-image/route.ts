@@ -8,11 +8,21 @@ import {
   validationErrorResponse,
   type ApiResponse
 } from '@/lib/api-response';
-import { logError, debugLog, createApiError } from '@/lib/errors';
+import { logError, debugLog } from '@/lib/errors';
 import type { ImageGenerationResponse } from '@/features/ai-generator/types';
 
 // Pollinations.ai - Free API, no key required
 const POLLINATIONS_API = 'https://image.pollinations.ai/prompt';
+
+// Helper to convert ArrayBuffer to base64 (Edge runtime compatible)
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
 
 // POST /api/generate-image
 // Generates an AI image from a text prompt using Pollinations.ai (FREE)
@@ -49,33 +59,71 @@ export async function POST(request: Request): Promise<NextResponse<ApiResponse<I
 
     // Build Pollinations URL with parameters
     const encodedPrompt = encodeURIComponent(prompt);
-    const imageUrl = `${POLLINATIONS_API}/${encodedPrompt}?width=${width}&height=${height}&nologo=true&seed=${Date.now()}`;
+    const seed = Math.floor(Math.random() * 1000000);
+    const imageUrl = `${POLLINATIONS_API}/${encodedPrompt}?width=${width}&height=${height}&nologo=true&seed=${seed}&model=flux`;
 
-    // Fetch the generated image
-    const response = await fetch(imageUrl, {
-      method: 'GET',
-    });
+    debugLog('ImageGen', `[${requestId}] Fetching from URL`, imageUrl);
 
-    if (!response.ok) {
-      throw createApiError(`Failed to generate image: ${response.status}`, {
-        status: response.status
+    // Fetch the generated image with timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+
+    try {
+      const response = await fetch(imageUrl, {
+        method: 'GET',
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; AI-Studio/1.0)',
+        },
       });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => 'Unknown error');
+        debugLog('ImageGen', `[${requestId}] API error`, { status: response.status, error: errorText });
+        return NextResponse.json({
+          success: false,
+          error: `Image generation failed (${response.status}). Please try again.`,
+          code: 'API_ERROR'
+        }, { status: 502 });
+      }
+
+      // Convert image to base64
+      const imageBuffer = await response.arrayBuffer();
+      debugLog('ImageGen', `[${requestId}] Image buffer size`, imageBuffer.byteLength);
+
+      if (imageBuffer.byteLength === 0) {
+        return NextResponse.json({
+          success: false,
+          error: 'Empty image received. Please try again.',
+          code: 'EMPTY_RESPONSE'
+        }, { status: 502 });
+      }
+
+      const imageBase64 = arrayBufferToBase64(imageBuffer);
+
+      debugLog('ImageGen', `[${requestId}] Generation successful`);
+
+      return successResponse({
+        image: `data:image/png;base64,${imageBase64}`,
+        prompt,
+        size,
+        timestamp: new Date().toISOString()
+      });
+
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+
+      if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+        return NextResponse.json({
+          success: false,
+          error: 'Image generation timed out. Please try again.',
+          code: 'TIMEOUT'
+        }, { status: 504 });
+      }
+      throw fetchError;
     }
-
-    // Convert image to base64
-    const imageBuffer = await response.arrayBuffer();
-    const imageBase64 = btoa(
-      new Uint8Array(imageBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
-    );
-
-    debugLog('ImageGen', `[${requestId}] Generation successful`);
-
-    return successResponse({
-      image: `data:image/png;base64,${imageBase64}`,
-      prompt,
-      size,
-      timestamp: new Date().toISOString()
-    });
 
   } catch (error) {
     logError(`ImageGen [${requestId}]`, error);
