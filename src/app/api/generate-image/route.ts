@@ -11,9 +11,6 @@ import {
 import { logError, debugLog } from '@/lib/errors';
 import type { ImageGenerationResponse } from '@/features/ai-generator/types';
 
-// Pollinations.ai - Free API, no key required
-const POLLINATIONS_API = 'https://image.pollinations.ai/prompt';
-
 // Helper to convert ArrayBuffer to base64 (Edge runtime compatible)
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
@@ -25,7 +22,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 }
 
 // POST /api/generate-image
-// Generates an AI image from a text prompt using Pollinations.ai (FREE)
+// Generates an AI image from a text prompt
 export async function POST(request: Request): Promise<NextResponse<ApiResponse<ImageGenerationResponse>>> {
   const requestId = crypto.randomUUID().slice(0, 8);
 
@@ -57,73 +54,85 @@ export async function POST(request: Request): Promise<NextResponse<ApiResponse<I
 
     debugLog('ImageGen', `[${requestId}] Starting generation`, { prompt: prompt.slice(0, 50), size });
 
-    // Build Pollinations URL with parameters
-    const encodedPrompt = encodeURIComponent(prompt);
-    const seed = Math.floor(Math.random() * 1000000);
-    const imageUrl = `${POLLINATIONS_API}/${encodedPrompt}?width=${width}&height=${height}&nologo=true&seed=${seed}&model=flux`;
-
-    debugLog('ImageGen', `[${requestId}] Fetching from URL`, imageUrl);
-
-    // Fetch the generated image with timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
-
-    try {
-      const response = await fetch(imageUrl, {
+    // Try multiple APIs for better reliability
+    const apis = [
+      // Option 1: Pollinations with specific model
+      {
+        url: `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${width}&height=${height}&nologo=true&seed=${Date.now()}&model=flux&enhance=true`,
         method: 'GET',
-        signal: controller.signal,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; AI-Studio/1.0)',
-        },
-      });
+      },
+      // Option 2: Pollinations with turbo model (faster)
+      {
+        url: `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${width}&height=${height}&nologo=true&seed=${Date.now()}&model=turbo`,
+        method: 'GET',
+      },
+    ];
 
-      clearTimeout(timeoutId);
+    let lastError: Error | null = null;
 
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => 'Unknown error');
-        debugLog('ImageGen', `[${requestId}] API error`, { status: response.status, error: errorText });
-        return NextResponse.json({
-          success: false,
-          error: `Image generation failed (${response.status}). Please try again.`,
-          code: 'API_ERROR'
-        }, { status: 502 });
+    for (const api of apis) {
+      try {
+        debugLog('ImageGen', `[${requestId}] Trying API`, api.url.substring(0, 100));
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout
+
+        const response = await fetch(api.url, {
+          method: api.method,
+          signal: controller.signal,
+          headers: {
+            'Accept': 'image/*',
+          },
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          debugLog('ImageGen', `[${requestId}] API failed`, { status: response.status });
+          lastError = new Error(`API returned ${response.status}`);
+          continue; // Try next API
+        }
+
+        const imageBuffer = await response.arrayBuffer();
+
+        if (imageBuffer.byteLength < 1000) {
+          debugLog('ImageGen', `[${requestId}] Image too small`, { size: imageBuffer.byteLength });
+          lastError = new Error('Image too small');
+          continue; // Try next API
+        }
+
+        const imageBase64 = arrayBufferToBase64(imageBuffer);
+
+        debugLog('ImageGen', `[${requestId}] Generation successful`, { size: imageBuffer.byteLength });
+
+        return successResponse({
+          image: `data:image/png;base64,${imageBase64}`,
+          prompt,
+          size,
+          timestamp: new Date().toISOString()
+        });
+
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error('Unknown error');
+        debugLog('ImageGen', `[${requestId}] API error`, lastError.message);
+        continue; // Try next API
       }
+    }
 
-      // Convert image to base64
-      const imageBuffer = await response.arrayBuffer();
-      debugLog('ImageGen', `[${requestId}] Image buffer size`, imageBuffer.byteLength);
+    // All APIs failed - return the URL so client can try directly
+    const fallbackUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${width}&height=${height}&nologo=true&seed=${Date.now()}`;
 
-      if (imageBuffer.byteLength === 0) {
-        return NextResponse.json({
-          success: false,
-          error: 'Empty image received. Please try again.',
-          code: 'EMPTY_RESPONSE'
-        }, { status: 502 });
-      }
+    debugLog('ImageGen', `[${requestId}] All APIs failed, returning fallback URL`);
 
-      const imageBase64 = arrayBufferToBase64(imageBuffer);
-
-      debugLog('ImageGen', `[${requestId}] Generation successful`);
-
-      return successResponse({
-        image: `data:image/png;base64,${imageBase64}`,
+    return NextResponse.json({
+      success: true,
+      data: {
+        image: fallbackUrl, // Return URL instead of base64
         prompt,
         size,
         timestamp: new Date().toISOString()
-      });
-
-    } catch (fetchError) {
-      clearTimeout(timeoutId);
-
-      if (fetchError instanceof Error && fetchError.name === 'AbortError') {
-        return NextResponse.json({
-          success: false,
-          error: 'Image generation timed out. Please try again.',
-          code: 'TIMEOUT'
-        }, { status: 504 });
       }
-      throw fetchError;
-    }
+    });
 
   } catch (error) {
     logError(`ImageGen [${requestId}]`, error);
