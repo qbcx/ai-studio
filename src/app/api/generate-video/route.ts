@@ -2,6 +2,15 @@ export const runtime = 'edge';
 
 import { NextResponse } from 'next/server';
 
+// GET handler for testing
+export async function GET() {
+  return NextResponse.json({
+    status: 'ok',
+    endpoint: 'generate-video',
+    providers: ['zhipu', 'replicate', 'fal', 'kling', 'runway']
+  });
+}
+
 // Security: Rate limiting
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 const RATE_LIMIT = 5; // Lower limit for video (expensive)
