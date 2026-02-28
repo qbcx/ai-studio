@@ -58,13 +58,19 @@ const SIZES = [
 ]
 
 // Provider options
-const IMAGE_PROVIDERS = [
+const IMAGE_PROVIDERS: Array<{ id: string; name: string; needsKey: boolean; popular?: boolean }> = [
+  { id: 'replicate', name: 'Replicate (Flux)', needsKey: true, popular: true },
+  { id: 'fal', name: 'fal.ai (Flux Pro)', needsKey: true, popular: true },
+  { id: 'gemini', name: 'Gemini (Imagen)', needsKey: true, popular: true },
   { id: 'zhipu', name: 'Zhipu AI (CogView)', needsKey: true },
   { id: 'openai', name: 'OpenAI DALL-E', needsKey: true },
   { id: 'stability', name: 'Stability AI', needsKey: true },
 ]
 
-const VIDEO_PROVIDERS = [
+const VIDEO_PROVIDERS: Array<{ id: string; name: string; needsKey: boolean; popular?: boolean }> = [
+  { id: 'replicate', name: 'Replicate (LTX)', needsKey: true },
+  { id: 'fal', name: 'fal.ai (LTX-2)', needsKey: true },
+  { id: 'kling', name: 'Kling AI', needsKey: true },
   { id: 'zhipu', name: 'Zhipu CogVideoX', needsKey: true },
   { id: 'runway', name: 'Runway Gen-3', needsKey: true },
 ]
@@ -94,7 +100,7 @@ export default function StudioPage() {
   const [removeWatermark, setRemoveWatermark] = useState(true)
 
   // Provider & API Key
-  const [provider, setProvider] = useState('zhipu')
+  const [provider, setProvider] = useState('replicate')
   const [apiKey, setApiKey] = useState('')
   const [showKey, setShowKey] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
@@ -231,6 +237,25 @@ export default function StudioPage() {
         throw new Error(data.error || 'Failed to generate')
       }
 
+      // Handle async providers (Replicate) that return prediction ID
+      if (data.data.predictionId && data.data.pollUrl) {
+        const tempId = genId()
+        setImages(prev => [{
+          id: tempId,
+          image: '',
+          prompt: data.data.prompt,
+          size: data.data.size,
+          loading: true
+        }, ...prev])
+
+        toast.success('Processing image...', { id: 'gen' })
+        setPrompt('')
+
+        // Poll for result
+        pollReplicateImage(data.data.predictionId, tempId)
+        return
+      }
+
       setImages(prev => [{
         id: genId(),
         image: data.data.image,
@@ -247,6 +272,73 @@ export default function StudioPage() {
     } finally {
       setIsGenerating(false)
     }
+  }
+
+  // Poll Replicate image status
+  const pollReplicateImage = async (predictionId: string, imageId: string) => {
+    const maxPolls = 60
+    const pollInterval = 2000
+    let pollCount = 0
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/image-status?predictionId=${predictionId}`, {
+          headers: {
+            'X-API-Key': apiKey
+          }
+        })
+        const data = await res.json()
+
+        pollCount++
+
+        if (data.success && data.data?.status === 'SUCCESS' && data.data?.imageUrl) {
+          setImages(prev =>
+            prev.map(img =>
+              img.id === imageId
+                ? { ...img, image: data.data.imageUrl, loading: false }
+                : img
+            )
+          )
+          toast.success('Image ready!')
+          setIsGenerating(false)
+          return
+        }
+
+        if (data.success && data.data?.status === 'FAIL') {
+          setImages(prev =>
+            prev.map(img =>
+              img.id === imageId
+                ? { ...img, loading: false, error: true }
+                : img
+            )
+          )
+          toast.error('Image generation failed')
+          setIsGenerating(false)
+          return
+        }
+
+        if (pollCount < maxPolls) {
+          setTimeout(poll, pollInterval)
+        } else {
+          setImages(prev =>
+            prev.map(img =>
+              img.id === imageId
+                ? { ...img, loading: false, error: true }
+                : img
+            )
+          )
+          toast.error('Image generation timeout')
+          setIsGenerating(false)
+        }
+      } catch (error) {
+        console.error('Image polling error:', error)
+        if (pollCount < maxPolls) {
+          setTimeout(poll, pollInterval)
+        }
+      }
+    }
+
+    poll()
   }
 
   // Generate Video
@@ -406,7 +498,7 @@ export default function StudioPage() {
     ))
   }
 
-  const isGenerating = activeTab === 'image' ? isGenerating : isGeneratingVideo
+  const isCurrentlyGenerating = activeTab === 'image' ? isGenerating : isGeneratingVideo
 
   return (
     <div className={cn(
@@ -497,13 +589,16 @@ export default function StudioPage() {
                     key={p.id}
                     onClick={() => setProvider(p.id)}
                     className={cn(
-                      'px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+                      'px-3 py-1.5 rounded-lg text-sm font-medium transition-all relative',
                       provider === p.id
                         ? 'bg-violet-500 text-white'
                         : isDark ? 'bg-zinc-800 text-zinc-400 hover:text-white' : 'bg-white text-zinc-600'
                     )}
                   >
                     {p.name}
+                    {p.popular && (
+                      <span className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full" title="Recommended" />
+                    )}
                   </button>
                 ))}
               </div>
@@ -585,7 +680,7 @@ export default function StudioPage() {
                 'min-h-[100px] resize-none border-0 text-base',
                 isDark ? 'bg-zinc-800' : 'bg-white'
               )}
-              disabled={isGenerating}
+              disabled={isCurrentlyGenerating}
             />
 
             <div className="flex flex-wrap items-center justify-between gap-4 mt-4">
@@ -623,10 +718,10 @@ export default function StudioPage() {
 
               <Button
                 onClick={activeTab === 'image' ? generateImage : generateVideo}
-                disabled={isGenerating || !prompt.trim() || !apiKey.trim()}
+                disabled={isCurrentlyGenerating || !prompt.trim() || !apiKey.trim()}
                 className="ml-auto px-6 h-10 bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-600 hover:to-fuchsia-600 text-white rounded-xl font-medium"
               >
-                {isGenerating ? (
+                {isCurrentlyGenerating ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                     {activeTab === 'image' ? 'Creating...' : 'Processing...'}
@@ -829,10 +924,14 @@ export default function StudioPage() {
 // Get provider dashboard URL
 function getProviderUrl(provider: string): string {
   const urls: Record<string, string> = {
+    replicate: 'https://replicate.com/account/api-tokens',
+    fal: 'https://fal.ai/dashboard/keys',
+    gemini: 'https://aistudio.google.com/api-keys',
     zhipu: 'https://open.bigmodel.cn',
     openai: 'https://platform.openai.com/api-keys',
     stability: 'https://platform.stability.ai/account/keys',
     runway: 'https://runwayml.com',
+    kling: 'https://klingai.com',
   }
   return urls[provider] || '#'
 }

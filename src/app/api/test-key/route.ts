@@ -105,6 +105,61 @@ export async function POST(request: Request) {
         }
       }
 
+      case 'replicate': {
+        const res = await fetch('https://api.replicate.com/v1/models', {
+          headers: {
+            'Authorization': `Bearer ${apiKey}`
+          }
+        });
+
+        if (res.ok) {
+          return NextResponse.json({ success: true });
+        } else {
+          return NextResponse.json({
+            success: false,
+            error: 'Invalid Replicate API key'
+          }, { status: 401 });
+        }
+      }
+
+      case 'fal': {
+        // fal.ai doesn't have a dedicated validation endpoint, test with a simple request
+        const res = await fetch('https://fal.run/fal-ai/flux/schnell', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Key ${apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            prompt: 'test',
+            num_inference_steps: 1
+          })
+        });
+
+        // Even a 4xx with proper auth response means the key is valid format
+        if (res.status !== 401 && res.status !== 403) {
+          return NextResponse.json({ success: true });
+        } else {
+          return NextResponse.json({
+            success: false,
+            error: 'Invalid fal.ai API key'
+          }, { status: 401 });
+        }
+      }
+
+      case 'gemini': {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+
+        if (res.ok) {
+          return NextResponse.json({ success: true });
+        } else {
+          return NextResponse.json({
+            success: false,
+            error: 'Invalid Gemini API key'
+          }, { status: 401 });
+        }
+      }
+
       default:
         return NextResponse.json({
           success: false,

@@ -147,9 +147,155 @@ export async function POST(request: Request) {
       }, { status: 400 });
     }
 
+    // Replicate (LTX Video, Kling)
+    if (provider === 'replicate') {
+      if (!apiKey || !validateApiKey(provider, apiKey)) {
+        return NextResponse.json({
+          success: false,
+          error: 'Valid Replicate API key required. Get it from https://replicate.com/account/api-tokens',
+          requiresKey: true
+        }, { status: 401 });
+      }
+
+      try {
+        const response = await fetch('https://api.replicate.com/v1/predictions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            version: 'lightricks/ltx-video',
+            input: {
+              prompt: cleanPrompt,
+              duration: validDuration
+            }
+          })
+        });
+
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}));
+          return NextResponse.json({
+            success: false,
+            error: error.detail || `Replicate error: ${response.status}`
+          }, { status: response.status });
+        }
+
+        const data = await response.json();
+        return NextResponse.json({
+          success: true,
+          data: { taskId: data.id, pollUrl: data.urls?.get },
+          timestamp: new Date().toISOString()
+        });
+
+      } catch (fetchError) {
+        console.error('[VideoGen] Replicate fetch error:', fetchError);
+        return NextResponse.json({
+          success: false,
+          error: 'Failed to connect to Replicate. Check your API key.'
+        }, { status: 502 });
+      }
+    }
+
+    // fal.ai (LTX-2)
+    if (provider === 'fal') {
+      if (!apiKey || !validateApiKey(provider, apiKey)) {
+        return NextResponse.json({
+          success: false,
+          error: 'Valid fal.ai API key required. Get it from https://fal.ai/dashboard/keys',
+          requiresKey: true
+        }, { status: 401 });
+      }
+
+      try {
+        const response = await fetch('https://fal.run/fal-ai/ltx-video', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Key ${apiKey}`
+          },
+          body: JSON.stringify({
+            prompt: cleanPrompt,
+            duration: validDuration
+          })
+        });
+
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}));
+          return NextResponse.json({
+            success: false,
+            error: error.detail || `fal.ai error: ${response.status}`
+          }, { status: response.status });
+        }
+
+        const data = await response.json();
+        return NextResponse.json({
+          success: true,
+          data: { taskId: data.request_id, videoUrl: data.video?.url },
+          timestamp: new Date().toISOString()
+        });
+
+      } catch (fetchError) {
+        console.error('[VideoGen] fal.ai fetch error:', fetchError);
+        return NextResponse.json({
+          success: false,
+          error: 'Failed to connect to fal.ai. Check your API key.'
+        }, { status: 502 });
+      }
+    }
+
+    // Kling AI
+    if (provider === 'kling') {
+      if (!apiKey || !validateApiKey(provider, apiKey)) {
+        return NextResponse.json({
+          success: false,
+          error: 'Valid Kling AI API key required.',
+          requiresKey: true
+        }, { status: 401 });
+      }
+
+      try {
+        const response = await fetch('https://api.klingai.com/v1/videos/text2video', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            prompt: cleanPrompt,
+            duration: validDuration,
+            cfg_scale: 0.5,
+            mode: 'std'
+          })
+        });
+
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}));
+          return NextResponse.json({
+            success: false,
+            error: error.message || `Kling error: ${response.status}`
+          }, { status: response.status });
+        }
+
+        const data = await response.json();
+        return NextResponse.json({
+          success: true,
+          data: { taskId: data.data?.task_id || data.task_id },
+          timestamp: new Date().toISOString()
+        });
+
+      } catch (fetchError) {
+        console.error('[VideoGen] Kling fetch error:', fetchError);
+        return NextResponse.json({
+          success: false,
+          error: 'Failed to connect to Kling AI. Check your API key.'
+        }, { status: 502 });
+      }
+    }
+
     return NextResponse.json({
       success: false,
-      error: `Unknown provider: ${provider}`
+      error: `Unknown provider: ${provider}. Supported: zhipu, replicate, fal, kling`
     }, { status: 400 });
 
   } catch (error) {

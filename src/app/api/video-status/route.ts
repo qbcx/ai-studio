@@ -110,10 +110,172 @@ export async function GET(request: Request) {
       });
     }
 
+    // Replicate video status
+    if (provider === 'replicate') {
+      const response = await fetch(`https://api.replicate.com/v1/predictions/${taskId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+        },
+      });
+
+      if (!response.ok) {
+        return NextResponse.json({
+          success: false,
+          error: `Replicate API error: ${response.status}`
+        }, { status: response.status });
+      }
+
+      const data = await response.json();
+      const status = data.status;
+
+      if (status === 'succeeded') {
+        const videoUrl = data.output?.[0] || data.output?.video || data.output;
+        return NextResponse.json({
+          success: true,
+          data: {
+            status: 'SUCCESS',
+            videoUrl
+          }
+        });
+      }
+
+      if (status === 'failed' || status === 'canceled') {
+        return NextResponse.json({
+          success: true,
+          data: {
+            status: 'FAIL'
+          }
+        });
+      }
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          status: 'PROCESSING'
+        }
+      });
+    }
+
+    // Kling video status
+    if (provider === 'kling') {
+      const response = await fetch(`https://api.klingai.com/v1/videos/text2video/${taskId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+        },
+      });
+
+      if (!response.ok) {
+        return NextResponse.json({
+          success: false,
+          error: `Kling API error: ${response.status}`
+        }, { status: response.status });
+      }
+
+      const data = await response.json();
+      const status = data.data?.task_status || data.status;
+
+      if (status === 'succeed' || status === 'SUCCESS') {
+        const videoUrl = data.data?.task_result?.videos?.[0]?.url;
+        return NextResponse.json({
+          success: true,
+          data: {
+            status: 'SUCCESS',
+            videoUrl
+          }
+        });
+      }
+
+      if (status === 'failed' || status === 'FAIL') {
+        return NextResponse.json({
+          success: true,
+          data: {
+            status: 'FAIL'
+          }
+        });
+      }
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          status: 'PROCESSING'
+        }
+      });
+    }
+
+    // fal.ai video status (check via request ID)
+    if (provider === 'fal') {
+      // fal.ai typically returns the result directly, but if there's a pending status
+      const response = await fetch(`https://fal.run/fal-ai/ltx-video/requests/${taskId}/status`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Key ${apiKey}`,
+        },
+      });
+
+      if (!response.ok) {
+        // fal might return 404 if completed, try to fetch the result
+        if (response.status === 404) {
+          const resultRes = await fetch(`https://fal.run/fal-ai/ltx-video/requests/${taskId}`, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Key ${apiKey}`,
+            },
+          });
+
+          if (resultRes.ok) {
+            const resultData = await resultRes.json();
+            return NextResponse.json({
+              success: true,
+              data: {
+                status: 'SUCCESS',
+                videoUrl: resultData.video?.url || resultData.video_url
+              }
+            });
+          }
+        }
+
+        return NextResponse.json({
+          success: false,
+          error: `fal.ai API error: ${response.status}`
+        }, { status: response.status });
+      }
+
+      const data = await response.json();
+      const status = data.status;
+
+      if (status === 'completed' || status === 'SUCCESS') {
+        return NextResponse.json({
+          success: true,
+          data: {
+            status: 'SUCCESS',
+            videoUrl: data.video?.url || data.video_url
+          }
+        });
+      }
+
+      if (status === 'failed' || status === 'FAIL') {
+        return NextResponse.json({
+          success: true,
+          data: {
+            status: 'FAIL'
+          }
+        });
+      }
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          status: 'PROCESSING'
+        }
+      });
+    }
+
     // Default for unsupported providers
     return NextResponse.json({
       success: false,
-      error: `Provider ${provider} not supported for video status`
+      error: `Provider ${provider} not supported for video status. Supported: zhipu, replicate, kling, fal`
     }, { status: 400 });
 
   } catch (error) {

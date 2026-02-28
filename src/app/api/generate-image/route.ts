@@ -45,6 +45,12 @@ function validateApiKey(provider: string, key: string): boolean {
       return key.length >= 20;
     case 'stability':
       return key.startsWith('sk-') || key.length >= 20;
+    case 'replicate':
+      return key.startsWith('r8_') || key.length >= 20;
+    case 'fal':
+      return key.length >= 20;
+    case 'gemini':
+      return key.startsWith('AI') || key.length >= 20;
     default:
       return key.length >= 10;
   }
@@ -287,10 +293,207 @@ export async function POST(request: Request) {
         }
       }
 
+      case 'replicate': {
+        if (!apiKey || !validateApiKey('replicate', apiKey)) {
+          return NextResponse.json({
+            success: false,
+            error: 'Valid Replicate API key required. Get it from https://replicate.com/account/api-tokens',
+            requiresKey: true
+          }, { status: 401 });
+        }
+
+        console.log('[ImageGen] Replicate Flux request');
+
+        try {
+          // Use Flux Schnell model for fast generation
+          const response = await fetch('https://api.replicate.com/v1/predictions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+              version: 'black-forest-labs/flux-schnell',
+              input: {
+                prompt: cleanPrompt,
+                go_fast: true,
+                num_outputs: 1,
+                aspect_ratio: width > height ? '16:9' : height > width ? '9:16' : '1:1',
+                output_format: 'jpg',
+                output_quality: 90
+              }
+            })
+          });
+
+          if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            return NextResponse.json({
+              success: false,
+              error: error.detail || error.error?.message || `Replicate error: ${response.status}`
+            }, { status: response.status });
+          }
+
+          const data = await response.json();
+
+          // Replicate returns a prediction that we need to poll
+          // For now, return the prediction ID and let client poll
+          return NextResponse.json({
+            success: true,
+            data: {
+              predictionId: data.id,
+              status: data.status,
+              pollUrl: data.urls?.get,
+              provider: 'replicate',
+              prompt: cleanPrompt,
+              size: validSize
+            },
+            timestamp: new Date().toISOString()
+          });
+
+        } catch (fetchError) {
+          console.error('[ImageGen] Replicate fetch error:', fetchError);
+          return NextResponse.json({
+            success: false,
+            error: 'Failed to connect to Replicate. Check your API key.'
+          }, { status: 502 });
+        }
+      }
+
+      case 'fal': {
+        if (!apiKey || !validateApiKey('fal', apiKey)) {
+          return NextResponse.json({
+            success: false,
+            error: 'Valid fal.ai API key required. Get it from https://fal.ai/dashboard/keys',
+            requiresKey: true
+          }, { status: 401 });
+        }
+
+        console.log('[ImageGen] fal.ai Flux request');
+
+        try {
+          const response = await fetch('https://fal.run/fal-ai/flux/schnell', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Key ${apiKey}`
+            },
+            body: JSON.stringify({
+              prompt: cleanPrompt,
+              image_size: validSize,
+              num_inference_steps: 4,
+              num_images: 1,
+              enable_safety_checker: true
+            })
+          });
+
+          if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            return NextResponse.json({
+              success: false,
+              error: error.detail || error.error || `fal.ai error: ${response.status}`
+            }, { status: response.status });
+          }
+
+          const data = await response.json();
+          const imageUrl = data.images?.[0]?.url || data.image?.url;
+
+          if (!imageUrl) {
+            return NextResponse.json({
+              success: false,
+              error: 'No image URL in fal.ai response'
+            }, { status: 500 });
+          }
+
+          return NextResponse.json({
+            success: true,
+            data: {
+              image: imageUrl,
+              prompt: cleanPrompt,
+              size: validSize
+            },
+            timestamp: new Date().toISOString()
+          });
+
+        } catch (fetchError) {
+          console.error('[ImageGen] fal.ai fetch error:', fetchError);
+          return NextResponse.json({
+            success: false,
+            error: 'Failed to connect to fal.ai. Check your API key.'
+          }, { status: 502 });
+        }
+      }
+
+      case 'gemini': {
+        if (!apiKey || !validateApiKey('gemini', apiKey)) {
+          return NextResponse.json({
+            success: false,
+            error: 'Valid Gemini API key required. Get it from https://aistudio.google.com/api-keys',
+            requiresKey: true
+          }, { status: 401 });
+        }
+
+        console.log('[ImageGen] Gemini Imagen request');
+
+        try {
+          // Use Imagen 3 for image generation via Gemini API
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              instances: [{
+                prompt: cleanPrompt
+              }],
+              parameters: {
+                sampleCount: 1,
+                aspectRatio: width > height ? '16:9' : height > width ? '9:16' : '1:1'
+              }
+            })
+          });
+
+          if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            return NextResponse.json({
+              success: false,
+              error: error.error?.message || error.error || `Gemini error: ${response.status}`
+            }, { status: response.status });
+          }
+
+          const data = await response.json();
+          // Imagen returns base64 encoded image
+          const imageBase64 = data.predictions?.[0]?.bytesBase64Encoded;
+
+          if (!imageBase64) {
+            return NextResponse.json({
+              success: false,
+              error: 'No image data in Gemini response'
+            }, { status: 500 });
+          }
+
+          return NextResponse.json({
+            success: true,
+            data: {
+              image: `data:image/png;base64,${imageBase64}`,
+              prompt: cleanPrompt,
+              size: validSize
+            },
+            timestamp: new Date().toISOString()
+          });
+
+        } catch (fetchError) {
+          console.error('[ImageGen] Gemini fetch error:', fetchError);
+          return NextResponse.json({
+            success: false,
+            error: 'Failed to connect to Gemini. Check your API key.'
+          }, { status: 502 });
+        }
+      }
+
       default:
         return NextResponse.json({
           success: false,
-          error: `Unknown provider: ${provider}`
+          error: `Unknown provider: ${provider}. Supported: zhipu, openai, stability, replicate, fal, gemini`
         }, { status: 400 });
     }
 
