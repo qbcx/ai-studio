@@ -17,7 +17,8 @@ import {
   Check,
   AlertCircle,
   Eye,
-  EyeOff
+  EyeOff,
+  RefreshCw
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -32,6 +33,8 @@ interface GeneratedImage {
   image: string
   prompt: string
   size: string
+  error?: boolean
+  loading?: boolean
 }
 
 // Simple ID generator
@@ -216,13 +219,15 @@ export default function StudioPage() {
         id: genId(),
         image: data.data.image,
         prompt: data.data.prompt,
-        size: data.data.size
+        size: data.data.size,
+        loading: true
       }, ...prev])
 
-      toast.success('Image created!', { id: 'gen' })
+      toast.success('Image created! Loading...', { id: 'gen' })
       setPrompt('')
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to generate', { id: 'gen' })
+      const message = err instanceof Error ? err.message : 'Failed to generate'
+      toast.error(message, { id: 'gen', duration: 5000 })
     } finally {
       setIsGenerating(false)
     }
@@ -235,6 +240,32 @@ export default function StudioPage() {
     link.download = `ai-image-${img.id}.png`
     link.click()
     toast.success('Downloaded!')
+  }
+
+  // Retry image generation
+  const retryImage = (img: GeneratedImage) => {
+    // Remove failed image and regenerate
+    setImages(prev => prev.filter(i => i.id !== img.id))
+    setPrompt(img.prompt)
+    setSize(img.size)
+    // Auto regenerate after a short delay
+    setTimeout(() => {
+      generateImage()
+    }, 100)
+  }
+
+  // Mark image as loaded
+  const imageLoaded = (id: string) => {
+    setImages(prev => prev.map(img =>
+      img.id === id ? { ...img, loading: false, error: false } : img
+    ))
+  }
+
+  // Mark image as failed
+  const imageFailed = (id: string) => {
+    setImages(prev => prev.map(img =>
+      img.id === id ? { ...img, loading: false, error: true } : img
+    ))
   }
 
   return (
@@ -481,17 +512,44 @@ export default function StudioPage() {
                   )}
                 >
                   <div className="aspect-square relative group">
+                    {/* Loading state */}
+                    {item.loading && (
+                      <div className={cn(
+                        'absolute inset-0 flex items-center justify-center',
+                        isDark ? 'bg-zinc-800' : 'bg-zinc-100'
+                      )}>
+                        <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
+                      </div>
+                    )}
+
+                    {/* Error state */}
+                    {item.error && (
+                      <div className={cn(
+                        'absolute inset-0 flex flex-col items-center justify-center gap-3',
+                        isDark ? 'bg-zinc-800' : 'bg-zinc-100'
+                      )}>
+                        <AlertCircle className="w-8 h-8 text-red-400" />
+                        <p className="text-sm text-zinc-500 text-center px-4">Failed to load image</p>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => retryImage(item)}
+                        >
+                          <RefreshCw className="w-4 h-4 mr-1" />
+                          Retry
+                        </Button>
+                      </div>
+                    )}
+
                     <img
                       src={item.image}
                       alt={item.prompt}
-                      className="w-full h-full object-cover"
-                      onLoad={(e) => {
-                        (e.target as HTMLImageElement).style.opacity = '1'
-                      }}
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><text x="50%" y="50%" text-anchor="middle" fill="%23999">Failed to load</text></svg>'
-                      }}
-                      style={{ opacity: 0, transition: 'opacity 0.5s' }}
+                      className={cn(
+                        'w-full h-full object-cover transition-opacity duration-500',
+                        item.loading || item.error ? 'opacity-0' : 'opacity-1'
+                      )}
+                      onLoad={() => imageLoaded(item.id)}
+                      onError={() => imageFailed(item.id)}
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
                       <div className="absolute bottom-0 left-0 right-0 p-3">

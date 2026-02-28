@@ -2,13 +2,15 @@ export const runtime = 'edge';
 
 import { NextResponse } from 'next/server';
 
-// GET /api/video-status?taskId=xxx
+// GET /api/video-status?taskId=xxx&provider=xxx
+// API key should be passed in X-API-Key header
 export async function GET(request: Request) {
   const requestId = crypto.randomUUID().slice(0, 8);
 
   try {
     const { searchParams } = new URL(request.url);
     const taskId = searchParams.get('taskId');
+    const provider = searchParams.get('provider') || 'zhipu';
 
     if (!taskId) {
       return NextResponse.json({
@@ -17,12 +19,13 @@ export async function GET(request: Request) {
       }, { status: 400 });
     }
 
-    // Check for API key
-    const apiKey = process.env.ZAI_API_KEY;
+    // Get API key from header
+    const apiKey = request.headers.get('X-API-Key');
     if (!apiKey) {
       return NextResponse.json({
         success: false,
-        error: 'API key required'
+        error: 'API key required. Please add your API key in the settings.',
+        requiresKey: true
       }, { status: 401 });
     }
 
