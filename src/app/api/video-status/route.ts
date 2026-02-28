@@ -11,9 +11,6 @@ import {
 import { logError, debugLog, createApiError } from '@/lib/errors';
 import type { VideoStatusResponse } from '@/features/ai-generator/types';
 
-// Z.AI API configuration
-const ZAI_API_BASE = 'https://api.zukijourney.com/v1';
-
 // GET /api/video-status?taskId=xxx
 // Checks the status of a video generation task
 export async function GET(request: Request): Promise<NextResponse<ApiResponse<VideoStatusResponse>>> {
@@ -33,13 +30,23 @@ export async function GET(request: Request): Promise<NextResponse<ApiResponse<Vi
 
     const { taskId } = parseResult.data;
 
+    // Check for API key
+    const apiKey = process.env.ZAI_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({
+        success: false,
+        error: 'Video generation requires an API key.',
+        code: 'API_KEY_REQUIRED'
+      }, { status: 401 });
+    }
+
     debugLog('VideoStatus', `[${requestId}] Checking status for task`, { taskId });
 
-    // Direct API call to check video status
-    const response = await fetch(`${ZAI_API_BASE}/video/generations/${taskId}`, {
+    // Zhipu AI / BigModel API to check video status
+    const response = await fetch(`https://open.bigmodel.cn/api/paas/v4/video/generations/${taskId}`, {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${process.env.ZAI_API_KEY || ''}`,
+        'Authorization': `Bearer ${apiKey}`,
       },
     });
 

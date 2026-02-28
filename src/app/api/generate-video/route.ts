@@ -8,14 +8,12 @@ import {
   validationErrorResponse,
   type ApiResponse
 } from '@/lib/api-response';
-import { logError, debugLog, createApiError } from '@/lib/errors';
+import { logError, debugLog } from '@/lib/errors';
 import type { VideoGenerationResponse } from '@/features/ai-generator/types';
-
-// Z.AI API configuration
-const ZAI_API_BASE = 'https://api.zukijourney.com/v1';
 
 // POST /api/generate-video
 // Creates a video generation task from a text prompt
+// NOTE: Video generation requires an API key - no free tier available
 export async function POST(request: Request): Promise<NextResponse<ApiResponse<VideoGenerationResponse>>> {
   const requestId = crypto.randomUUID().slice(0, 8);
 
@@ -42,6 +40,16 @@ export async function POST(request: Request): Promise<NextResponse<ApiResponse<V
       });
     }
 
+    // Check for API key
+    const apiKey = process.env.ZAI_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({
+        success: false,
+        error: 'Video generation requires an API key. Get one for free at: https://bigmodel.cn (Zhipu AI) or add ZAI_API_KEY to your environment variables.',
+        code: 'API_KEY_REQUIRED'
+      }, { status: 401 });
+    }
+
     const { prompt, quality, duration } = parseResult.data;
 
     debugLog('VideoGen', `[${requestId}] Starting generation`, {
@@ -50,15 +58,15 @@ export async function POST(request: Request): Promise<NextResponse<ApiResponse<V
       duration
     });
 
-    // Direct API call to Z.AI for video generation
-    const response = await fetch(`${ZAI_API_BASE}/video/generations`, {
+    // Zhipu AI / BigModel API for video generation
+    const response = await fetch('https://open.bigmodel.cn/api/paas/v4/video/generations', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.ZAI_API_KEY || ''}`,
+        'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'kling',
+        model: 'cogvideox',
         prompt,
         quality,
         duration,
@@ -67,19 +75,22 @@ export async function POST(request: Request): Promise<NextResponse<ApiResponse<V
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw createApiError(errorData.error?.message || `API error: ${response.status}`, {
-        status: response.status,
-        error: errorData
-      });
+      return NextResponse.json({
+        success: false,
+        error: errorData.error?.message || `API error: ${response.status}`,
+        code: 'API_ERROR'
+      }, { status: response.status });
     }
 
     const data = await response.json();
     const taskId = data.id || data.task_id || data.data?.id;
 
     if (!taskId) {
-      throw createApiError('No task ID returned from AI service', {
-        response: 'missing task id'
-      });
+      return NextResponse.json({
+        success: false,
+        error: 'No task ID returned from AI service',
+        code: 'API_ERROR'
+      }, { status: 500 });
     }
 
     debugLog('VideoGen', `[${requestId}] Task created`, { taskId });

@@ -11,11 +11,11 @@ import {
 import { logError, debugLog, createApiError } from '@/lib/errors';
 import type { ImageGenerationResponse } from '@/features/ai-generator/types';
 
-// Z.AI API configuration
-const ZAI_API_BASE = 'https://api.zukijourney.com/v1';
+// Pollinations.ai - Free API, no key required
+const POLLINATIONS_API = 'https://image.pollinations.ai/prompt';
 
 // POST /api/generate-image
-// Generates an AI image from a text prompt
+// Generates an AI image from a text prompt using Pollinations.ai (FREE)
 export async function POST(request: Request): Promise<NextResponse<ApiResponse<ImageGenerationResponse>>> {
   const requestId = crypto.randomUUID().slice(0, 8);
 
@@ -43,41 +43,30 @@ export async function POST(request: Request): Promise<NextResponse<ApiResponse<I
     }
 
     const { prompt, size } = parseResult.data;
+    const [width, height] = size.split('x').map(Number);
 
     debugLog('ImageGen', `[${requestId}] Starting generation`, { prompt: prompt.slice(0, 50), size });
 
-    // Direct API call to Z.AI
-    const response = await fetch(`${ZAI_API_BASE}/images/generations`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.ZAI_API_KEY || ''}`,
-      },
-      body: JSON.stringify({
-        model: 'flux',
-        prompt,
-        size,
-        response_format: 'b64_json',
-        n: 1,
-      }),
+    // Build Pollinations URL with parameters
+    const encodedPrompt = encodeURIComponent(prompt);
+    const imageUrl = `${POLLINATIONS_API}/${encodedPrompt}?width=${width}&height=${height}&nologo=true&seed=${Date.now()}`;
+
+    // Fetch the generated image
+    const response = await fetch(imageUrl, {
+      method: 'GET',
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw createApiError(errorData.error?.message || `API error: ${response.status}`, {
-        status: response.status,
-        error: errorData
+      throw createApiError(`Failed to generate image: ${response.status}`, {
+        status: response.status
       });
     }
 
-    const data = await response.json();
-    const imageBase64 = data.data?.[0]?.b64_json;
-
-    if (!imageBase64) {
-      throw createApiError('No image data returned from AI service', {
-        response: 'missing base64 data'
-      });
-    }
+    // Convert image to base64
+    const imageBuffer = await response.arrayBuffer();
+    const imageBase64 = btoa(
+      new Uint8Array(imageBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+    );
 
     debugLog('ImageGen', `[${requestId}] Generation successful`);
 
