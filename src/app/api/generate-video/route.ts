@@ -108,7 +108,7 @@ export async function POST(request: Request) {
 
         if (!response.ok) {
           const errorText = await response.text();
-          let errorMessage = `Zhipu AI error: ${response.status}`;
+          let errorMessage = `Zhipu AI error (${response.status})`;
 
           try {
             const errorJson = JSON.parse(errorText);
@@ -117,10 +117,17 @@ export async function POST(request: Request) {
             if (errorText) errorMessage = errorText.slice(0, 200);
           }
 
+          // Return 400 with clear error message, don't pass through external status
           return NextResponse.json({
             success: false,
-            error: errorMessage
-          }, { status: response.status });
+            error: response.status === 401
+              ? 'Invalid Zhipu AI API key. Check your key at open.bigmodel.cn'
+              : response.status === 404
+                ? 'Zhipu AI video endpoint not found. API may have changed.'
+                : response.status === 429
+                  ? 'Zhipu AI rate limit exceeded. Please wait.'
+                  : errorMessage
+          }, { status: 400 });
         }
 
         const data = await response.json();
@@ -129,7 +136,7 @@ export async function POST(request: Request) {
         if (!taskId) {
           return NextResponse.json({
             success: false,
-            error: 'No task ID returned'
+            error: 'No task ID returned from Zhipu AI'
           }, { status: 500 });
         }
 
@@ -143,7 +150,7 @@ export async function POST(request: Request) {
         console.error('[VideoGen] Zhipu fetch error:', fetchError);
         return NextResponse.json({
           success: false,
-          error: 'Failed to connect to Zhipu AI. Check your API key.'
+          error: 'Failed to connect to Zhipu AI. Check your connection.'
         }, { status: 502 });
       }
     }
