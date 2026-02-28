@@ -1,4 +1,5 @@
-export const runtime = 'edge';
+// Note: Using Node.js runtime due to z-ai-web-dev-sdk dependencies
+// export const runtime = 'edge';
 
 import { NextResponse } from 'next/server';
 import ZAI from 'z-ai-web-dev-sdk';

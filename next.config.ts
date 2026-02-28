@@ -9,14 +9,33 @@ const nextConfig: NextConfig = {
     unoptimized: true,
   },
   webpack: (config, { isServer }) => {
-    if (!isServer) {
-      config.resolve.fallback = {
-        ...config.resolve.fallback,
+    // Polyfill Node.js modules for both client and Edge runtime
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      fs: false,
+      path: false,
+      os: false,
+      crypto: false,
+      stream: false,
+      http: false,
+      https: false,
+      zlib: false,
+      util: false,
+      buffer: false,
+      url: false,
+      querystring: false,
+    };
+
+    // For server/edge builds, also set these to empty modules
+    if (isServer) {
+      config.resolve.alias = {
+        ...config.resolve.alias,
         fs: false,
         path: false,
         os: false,
       };
     }
+
     return config;
   },
 };
