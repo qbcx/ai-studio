@@ -1,8 +1,6 @@
-// Note: Using Node.js runtime due to z-ai-web-dev-sdk dependencies
-// export const runtime = 'edge';
+export const runtime = 'edge';
 
 import { NextResponse } from 'next/server';
-import ZAI from 'z-ai-web-dev-sdk';
 import { generateImageSchema } from '@/features/ai-generator/schemas';
 import {
   successResponse,
@@ -10,13 +8,11 @@ import {
   validationErrorResponse,
   type ApiResponse
 } from '@/lib/api-response';
-import {
-  logError,
-  debugLog,
-  createApiError,
-  createValidationError
-} from '@/lib/errors';
+import { logError, debugLog, createApiError } from '@/lib/errors';
 import type { ImageGenerationResponse } from '@/features/ai-generator/types';
+
+// Z.AI API configuration
+const ZAI_API_BASE = 'https://api.zukijourney.com/v1';
 
 // POST /api/generate-image
 // Generates an AI image from a text prompt
@@ -50,16 +46,32 @@ export async function POST(request: Request): Promise<NextResponse<ApiResponse<I
 
     debugLog('ImageGen', `[${requestId}] Starting generation`, { prompt: prompt.slice(0, 50), size });
 
-    // Initialize AI SDK
-    const zai = await ZAI.create();
-
-    // Generate image
-    const response = await zai.images.generations.create({
-      prompt,
-      size,
+    // Direct API call to Z.AI
+    const response = await fetch(`${ZAI_API_BASE}/images/generations`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.ZAI_API_KEY || ''}`,
+      },
+      body: JSON.stringify({
+        model: 'flux',
+        prompt,
+        size,
+        response_format: 'b64_json',
+        n: 1,
+      }),
     });
 
-    const imageBase64 = response.data[0]?.base64;
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw createApiError(errorData.error?.message || `API error: ${response.status}`, {
+        status: response.status,
+        error: errorData
+      });
+    }
+
+    const data = await response.json();
+    const imageBase64 = data.data?.[0]?.b64_json;
 
     if (!imageBase64) {
       throw createApiError('No image data returned from AI service', {
@@ -70,7 +82,7 @@ export async function POST(request: Request): Promise<NextResponse<ApiResponse<I
     debugLog('ImageGen', `[${requestId}] Generation successful`);
 
     return successResponse({
-      image: imageBase64,
+      image: `data:image/png;base64,${imageBase64}`,
       prompt,
       size,
       timestamp: new Date().toISOString()

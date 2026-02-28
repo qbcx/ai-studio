@@ -1,8 +1,6 @@
-// Note: Using Node.js runtime due to z-ai-web-dev-sdk dependencies
-// export const runtime = 'edge';
+export const runtime = 'edge';
 
 import { NextResponse } from 'next/server';
-import ZAI from 'z-ai-web-dev-sdk';
 import { videoStatusSchema } from '@/features/ai-generator/schemas';
 import {
   successResponse,
@@ -10,12 +8,11 @@ import {
   validationErrorResponse,
   type ApiResponse
 } from '@/lib/api-response';
-import {
-  logError,
-  debugLog,
-  createApiError
-} from '@/lib/errors';
+import { logError, debugLog, createApiError } from '@/lib/errors';
 import type { VideoStatusResponse } from '@/features/ai-generator/types';
+
+// Z.AI API configuration
+const ZAI_API_BASE = 'https://api.zukijourney.com/v1';
 
 // GET /api/video-status?taskId=xxx
 // Checks the status of a video generation task
@@ -38,25 +35,35 @@ export async function GET(request: Request): Promise<NextResponse<ApiResponse<Vi
 
     debugLog('VideoStatus', `[${requestId}] Checking status for task`, { taskId });
 
-    // Initialize AI SDK
-    const zai = await ZAI.create();
-
-    // Get video status
-    const response = await zai.videos.generations.status(taskId);
-
-    debugLog('VideoStatus', `[${requestId}] Status response`, {
-      status: response.status,
-      hasVideo: !!response.video
+    // Direct API call to check video status
+    const response = await fetch(`${ZAI_API_BASE}/video/generations/${taskId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${process.env.ZAI_API_KEY || ''}`,
+      },
     });
 
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw createApiError(errorData.error?.message || `API error: ${response.status}`, {
+        status: response.status,
+        error: errorData
+      });
+    }
+
+    const data = await response.json();
+    const status = data.status || data.data?.status || 'PROCESSING';
+
+    debugLog('VideoStatus', `[${requestId}] Status response`, { status, data });
+
     // Handle different statuses
-    if (response.status === 'SUCCESS') {
-      const videoUrl = response.video;
+    if (status === 'SUCCESS' || status === 'completed' || status === 'succeeded') {
+      const videoUrl = data.video || data.video_url || data.data?.video || data.data?.video_url;
 
       if (!videoUrl) {
         throw createApiError('Video completed but no URL returned', {
           taskId,
-          status: response.status
+          status
         });
       }
 
@@ -66,7 +73,7 @@ export async function GET(request: Request): Promise<NextResponse<ApiResponse<Vi
       });
     }
 
-    if (response.status === 'FAIL') {
+    if (status === 'FAIL' || status === 'failed' || status === 'error') {
       return successResponse({
         status: 'FAIL'
       });

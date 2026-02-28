@@ -1,8 +1,6 @@
-// Note: Using Node.js runtime due to z-ai-web-dev-sdk dependencies
-// export const runtime = 'edge';
+export const runtime = 'edge';
 
 import { NextResponse } from 'next/server';
-import ZAI from 'z-ai-web-dev-sdk';
 import { generateVideoSchema } from '@/features/ai-generator/schemas';
 import {
   successResponse,
@@ -10,12 +8,11 @@ import {
   validationErrorResponse,
   type ApiResponse
 } from '@/lib/api-response';
-import {
-  logError,
-  debugLog,
-  createApiError
-} from '@/lib/errors';
+import { logError, debugLog, createApiError } from '@/lib/errors';
 import type { VideoGenerationResponse } from '@/features/ai-generator/types';
+
+// Z.AI API configuration
+const ZAI_API_BASE = 'https://api.zukijourney.com/v1';
 
 // POST /api/generate-video
 // Creates a video generation task from a text prompt
@@ -45,27 +42,39 @@ export async function POST(request: Request): Promise<NextResponse<ApiResponse<V
       });
     }
 
-    const { prompt, quality, duration, fps } = parseResult.data;
+    const { prompt, quality, duration } = parseResult.data;
 
     debugLog('VideoGen', `[${requestId}] Starting generation`, {
       prompt: prompt.slice(0, 50),
       quality,
-      duration,
-      fps
+      duration
     });
 
-    // Initialize AI SDK
-    const zai = await ZAI.create();
-
-    // Create video generation task
-    const response = await zai.videos.generations.create({
-      prompt,
-      quality,
-      duration,
-      // Note: fps might not be supported by the SDK, keeping for compatibility
+    // Direct API call to Z.AI for video generation
+    const response = await fetch(`${ZAI_API_BASE}/video/generations`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.ZAI_API_KEY || ''}`,
+      },
+      body: JSON.stringify({
+        model: 'kling',
+        prompt,
+        quality,
+        duration,
+      }),
     });
 
-    const taskId = response.id;
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw createApiError(errorData.error?.message || `API error: ${response.status}`, {
+        status: response.status,
+        error: errorData
+      });
+    }
+
+    const data = await response.json();
+    const taskId = data.id || data.task_id || data.data?.id;
 
     if (!taskId) {
       throw createApiError('No task ID returned from AI service', {
