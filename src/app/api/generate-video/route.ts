@@ -4,8 +4,6 @@ import { NextResponse } from 'next/server';
 
 // POST /api/generate-video
 export async function POST(request: Request) {
-  const requestId = crypto.randomUUID().slice(0, 8);
-
   try {
     const body = await request.json();
     const { prompt, quality = 'speed', duration = 5 } = body;
@@ -22,12 +20,9 @@ export async function POST(request: Request) {
     if (!apiKey) {
       return NextResponse.json({
         success: false,
-        error: 'Video generation requires ZAI_API_KEY. Get one at: https://open.bigmodel.cn',
-        code: 'API_KEY_REQUIRED'
+        error: 'Video generation requires ZAI_API_KEY. Get one at: https://open.bigmodel.cn'
       }, { status: 401 });
     }
-
-    console.log(`[${requestId}] Video generation started`, { prompt: prompt.slice(0, 50) });
 
     // Zhipu AI CogVideoX API
     const response = await fetch('https://open.bigmodel.cn/api/paas/v4/video/generations', {
@@ -45,17 +40,13 @@ export async function POST(request: Request) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[${requestId}] API error:`, errorText);
       return NextResponse.json({
         success: false,
-        error: `API error: ${response.status}`,
-        details: errorText
+        error: `API error: ${response.status}`
       }, { status: response.status });
     }
 
     const data = await response.json();
-    console.log(`[${requestId}] API response:`, data);
-
     const taskId = data.id || data.task_id || data.data?.id;
 
     if (!taskId) {
@@ -65,16 +56,16 @@ export async function POST(request: Request) {
       }, { status: 500 });
     }
 
+    // Return in format expected by frontend
     return NextResponse.json({
       success: true,
       data: {
-        taskId,
-        timestamp: new Date().toISOString()
-      }
+        taskId
+      },
+      timestamp: new Date().toISOString()
     });
 
   } catch (error) {
-    console.error(`[${requestId}] Error:`, error);
     return NextResponse.json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
