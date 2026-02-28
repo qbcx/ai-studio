@@ -18,8 +18,9 @@ export async function POST(request: Request) {
 
     // Test based on provider
     switch (provider) {
-      case 'openai': {
-        const res = await fetch('https://api.openai.com/v1/models', {
+      case 'huggingface': {
+        // Test HF token by fetching user info
+        const res = await fetch('https://huggingface.co/api/whoami-v2', {
           headers: {
             'Authorization': `Bearer ${apiKey}`
           }
@@ -28,10 +29,9 @@ export async function POST(request: Request) {
         if (res.ok) {
           return NextResponse.json({ success: true });
         } else {
-          const data = await res.json().catch(() => ({}));
           return NextResponse.json({
             success: false,
-            error: data.error?.message || 'Invalid API key'
+            error: 'Invalid Hugging Face token'
           }, { status: 401 });
         }
       }
@@ -49,6 +49,24 @@ export async function POST(request: Request) {
           return NextResponse.json({
             success: false,
             error: 'Invalid Zhipu AI API key'
+          }, { status: 401 });
+        }
+      }
+
+      case 'openai': {
+        const res = await fetch('https://api.openai.com/v1/models', {
+          headers: {
+            'Authorization': `Bearer ${apiKey}`
+          }
+        });
+
+        if (res.ok) {
+          return NextResponse.json({ success: true });
+        } else {
+          const data = await res.json().catch(() => ({}));
+          return NextResponse.json({
+            success: false,
+            error: data.error?.message || 'Invalid API key'
           }, { status: 401 });
         }
       }

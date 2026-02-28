@@ -22,14 +22,23 @@ export interface AIProvider {
 export const AI_PROVIDERS: AIProvider[] = [
   // ===== FREE / FREEMIUM =====
   {
-    id: 'pollinations',
-    name: 'Pollinations.ai',
-    description: '100% free AI image generation, no signup',
-    dashboardUrl: 'https://pollinations.ai',
+    id: 'huggingface',
+    name: 'Hugging Face',
+    description: 'Free Stable Diffusion XL, no signup required',
+    dashboardUrl: 'https://huggingface.co/settings/tokens',
     features: { image: true, video: false },
-    pricing: { free: 'Unlimited free images' },
+    pricing: { free: 'Free with rate limits', paid: 'Pro for higher limits' },
     popular: true,
-    icon: '🌸'
+    icon: '🤗'
+  },
+  {
+    id: 'zhipu',
+    name: 'Zhipu AI',
+    description: 'GLM & CogView/CogVideoX models',
+    dashboardUrl: 'https://open.bigmodel.cn',
+    features: { image: true, video: true },
+    pricing: { free: 'Free tier available', paid: 'Pay per use' },
+    icon: '🤖'
   },
   {
     id: 'seedance',
@@ -41,15 +50,6 @@ export const AI_PROVIDERS: AIProvider[] = [
     new: true,
     popular: true,
     icon: '🎬'
-  },
-  {
-    id: 'zhipu',
-    name: 'Zhipu AI',
-    description: 'GLM & CogVideoX models',
-    dashboardUrl: 'https://open.bigmodel.cn',
-    features: { image: true, video: true },
-    pricing: { free: 'Free tier available', paid: 'Pay per use' },
-    icon: '🤖'
   },
 
   // ===== POPULAR PAID =====

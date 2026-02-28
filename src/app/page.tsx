@@ -49,9 +49,9 @@ const SIZES = [
 
 // Provider options
 const IMAGE_PROVIDERS = [
-  { id: 'pollinations', name: 'Pollinations (Free)', needsKey: false, warning: 'May be slow/unavailable' },
+  { id: 'huggingface', name: 'Hugging Face (Free)', needsKey: false },
+  { id: 'zhipu', name: 'Zhipu AI (CogView)', needsKey: true },
   { id: 'openai', name: 'OpenAI DALL-E', needsKey: true },
-  { id: 'zhipu', name: 'Zhipu AI', needsKey: true },
   { id: 'stability', name: 'Stability AI', needsKey: true },
 ]
 
@@ -589,8 +589,9 @@ export default function StudioPage() {
 // Get provider dashboard URL
 function getProviderUrl(provider: string): string {
   const urls: Record<string, string> = {
-    openai: 'https://platform.openai.com/api-keys',
+    huggingface: 'https://huggingface.co/settings/tokens',
     zhipu: 'https://open.bigmodel.cn',
+    openai: 'https://platform.openai.com/api-keys',
     stability: 'https://platform.stability.ai/account/keys',
     runway: 'https://runwayml.com',
   }

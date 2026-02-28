@@ -7,7 +7,7 @@ import { NextResponse } from 'next/server';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { prompt, size = '1024x1024', provider = 'pollinations', apiKey } = body;
+    const { prompt, size = '1024x1024', provider = 'huggingface', apiKey } = body;
 
     if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
       return NextResponse.json({
@@ -18,82 +18,154 @@ export async function POST(request: Request) {
 
     const [width, height] = size.split('x').map(Number);
     const cleanPrompt = prompt.trim();
-    const seed = Math.floor(Math.random() * 999999999);
 
     // Handle different providers
     switch (provider) {
-      case 'pollinations': {
-        // Pollinations.ai - Free, no API key needed
-        // Fetch server-side to avoid CORS/Cloudflare blocking issues
-        const encodedPrompt = encodeURIComponent(cleanPrompt);
+      case 'huggingface': {
+        // Hugging Face Free Inference API - No API key required (with rate limits)
+        // Using Stable Diffusion XL for quality images
+        const model = 'stabilityai/stable-diffusion-xl-base-1.0';
 
-        // Try the image.pollinations.ai endpoint
-        const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true&seed=${seed}&model=flux`;
-
-        console.log('[ImageGen] Fetching from Pollinations:', pollinationsUrl);
+        console.log('[ImageGen] Hugging Face request for:', cleanPrompt);
 
         try {
-          // Fetch the image server-side with timeout
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
-
-          const imageResponse = await fetch(pollinationsUrl, {
-            signal: controller.signal,
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-              'Accept': 'image/*'
+          const response = await fetch(
+            `https://api-inference.huggingface.co/models/${model}`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                // Optional: Add HF token for higher rate limits
+                ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {})
+              },
+              body: JSON.stringify({
+                inputs: cleanPrompt,
+                parameters: {
+                  width: Math.min(width, 1024),
+                  height: Math.min(height, 1024),
+                  num_inference_steps: 30
+                }
+              })
             }
-          });
+          );
 
-          clearTimeout(timeoutId);
+          if (!response.ok) {
+            const errorText = await response.text();
 
-          if (imageResponse.ok) {
-            // Convert to base64 data URL
-            const imageBuffer = await imageResponse.arrayBuffer();
-            const base64 = btoa(
-              new Uint8Array(imageBuffer).reduce(
-                (data, byte) => data + String.fromCharCode(byte),
-                ''
-              )
-            );
-            const dataUrl = `data:image/png;base64,${base64}`;
+            // Check if model is loading
+            if (response.status === 503) {
+              return NextResponse.json({
+                success: false,
+                error: 'Model is loading, please wait 30 seconds and try again',
+                retryable: true
+              }, { status: 503 });
+            }
 
+            // Rate limited
+            if (response.status === 429) {
+              return NextResponse.json({
+                success: false,
+                error: 'Rate limited. Try again in a minute or add a Hugging Face API token.'
+              }, { status: 429 });
+            }
+
+            console.error('[ImageGen] HF error:', errorText);
             return NextResponse.json({
-              success: true,
-              data: {
-                image: dataUrl,
-                prompt: cleanPrompt,
-                size: size
-              },
-              timestamp: new Date().toISOString()
-            });
-          } else {
-            console.log('[ImageGen] Pollinations returned:', imageResponse.status);
-            // Return URL anyway, let client try
-            return NextResponse.json({
-              success: true,
-              data: {
-                image: pollinationsUrl,
-                prompt: cleanPrompt,
-                size: size
-              },
-              timestamp: new Date().toISOString(),
-              warning: 'Image may take time to load. If it fails, try again or use a different provider.'
-            });
+              success: false,
+              error: `Hugging Face error: ${response.status}`
+            }, { status: response.status });
           }
-        } catch (fetchError) {
-          console.error('[ImageGen] Pollinations fetch error:', fetchError);
-          // Return URL anyway as fallback
+
+          // Get image blob
+          const imageBuffer = await response.arrayBuffer();
+          const base64 = btoa(
+            new Uint8Array(imageBuffer).reduce(
+              (data, byte) => data + String.fromCharCode(byte),
+              ''
+            )
+          );
+          const dataUrl = `data:image/png;base64,${base64}`;
+
           return NextResponse.json({
             success: true,
             data: {
-              image: pollinationsUrl,
+              image: dataUrl,
               prompt: cleanPrompt,
               size: size
             },
-            timestamp: new Date().toISOString(),
-            warning: 'Image may take time to load. If it fails, try again or use a different provider.'
+            timestamp: new Date().toISOString()
           });
+
+        } catch (fetchError) {
+          console.error('[ImageGen] HF fetch error:', fetchError);
+          return NextResponse.json({
+            success: false,
+            error: 'Failed to connect to Hugging Face. Please try again.'
+          }, { status: 502 });
+        }
+      }
+
+      case 'zhipu': {
+        if (!apiKey) {
+          return NextResponse.json({
+            success: false,
+            error: 'Zhipu AI API key required. Get it from https://open.bigmodel.cn',
+            requiresKey: true
+          }, { status: 401 });
+        }
+
+        console.log('[ImageGen] Zhipu AI request for:', cleanPrompt);
+
+        try {
+          // Zhipu CogView-4 API
+          const response = await fetch('https://open.bigmodel.cn/api/paas/v4/images/generations', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+              model: 'cogview-4',
+              prompt: cleanPrompt,
+              size: size
+            })
+          });
+
+          if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            return NextResponse.json({
+              success: false,
+              error: error.error?.message || error.message || `Zhipu AI error: ${response.status}`
+            }, { status: response.status });
+          }
+
+          const data = await response.json();
+          const imageUrl = data.data?.[0]?.url || data.data?.[0]?.image_url || data.data?.url;
+
+          if (!imageUrl) {
+            console.error('[ImageGen] Zhipu response:', data);
+            return NextResponse.json({
+              success: false,
+              error: 'No image URL in response'
+            }, { status: 500 });
+          }
+
+          return NextResponse.json({
+            success: true,
+            data: {
+              image: imageUrl,
+              prompt: cleanPrompt,
+              size: size
+            },
+            timestamp: new Date().toISOString()
+          });
+
+        } catch (fetchError) {
+          console.error('[ImageGen] Zhipu fetch error:', fetchError);
+          return NextResponse.json({
+            success: false,
+            error: 'Failed to connect to Zhipu AI. Check your API key.'
+          }, { status: 502 });
         }
       }
 
@@ -101,135 +173,112 @@ export async function POST(request: Request) {
         if (!apiKey) {
           return NextResponse.json({
             success: false,
-            error: 'OpenAI API key required',
+            error: 'OpenAI API key required. Get it from https://platform.openai.com/api-keys',
             requiresKey: true
           }, { status: 401 });
         }
 
-        // Call OpenAI DALL-E API
-        const res = await fetch('https://api.openai.com/v1/images/generations', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`
-          },
-          body: JSON.stringify({
-            model: 'dall-e-3',
-            prompt: cleanPrompt,
-            n: 1,
-            size: size as '1024x1024' | '1792x1024' | '1024x1792',
-            quality: 'standard'
-          })
-        });
+        console.log('[ImageGen] OpenAI request for:', cleanPrompt);
 
-        if (!res.ok) {
-          const error = await res.json().catch(() => ({}));
+        try {
+          const response = await fetch('https://api.openai.com/v1/images/generations', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+              model: 'dall-e-3',
+              prompt: cleanPrompt,
+              n: 1,
+              size: size as '1024x1024' | '1792x1024' | '1024x1792',
+              quality: 'standard'
+            })
+          });
+
+          if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            return NextResponse.json({
+              success: false,
+              error: error.error?.message || `OpenAI error: ${response.status}`
+            }, { status: response.status });
+          }
+
+          const data = await response.json();
+          return NextResponse.json({
+            success: true,
+            data: {
+              image: data.data[0].url,
+              prompt: cleanPrompt,
+              size: size
+            },
+            timestamp: new Date().toISOString()
+          });
+
+        } catch (fetchError) {
+          console.error('[ImageGen] OpenAI fetch error:', fetchError);
           return NextResponse.json({
             success: false,
-            error: error.error?.message || 'OpenAI API error'
-          }, { status: res.status });
+            error: 'Failed to connect to OpenAI. Check your API key.'
+          }, { status: 502 });
         }
-
-        const data = await res.json();
-        return NextResponse.json({
-          success: true,
-          data: {
-            image: data.data[0].url,
-            prompt: cleanPrompt,
-            size: size
-          },
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      case 'zhipu': {
-        if (!apiKey) {
-          return NextResponse.json({
-            success: false,
-            error: 'Zhipu AI API key required',
-            requiresKey: true
-          }, { status: 401 });
-        }
-
-        // Call Zhipu AI CogView API
-        const res = await fetch('https://open.bigmodel.cn/api/paas/v4/images/generations', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`
-          },
-          body: JSON.stringify({
-            model: 'cogview-4',
-            prompt: cleanPrompt,
-            size: size
-          })
-        });
-
-        if (!res.ok) {
-          const error = await res.json().catch(() => ({}));
-          return NextResponse.json({
-            success: false,
-            error: error.error?.message || 'Zhipu AI API error'
-          }, { status: res.status });
-        }
-
-        const data = await res.json();
-        return NextResponse.json({
-          success: true,
-          data: {
-            image: data.data[0]?.url || data.data?.[0]?.image_url,
-            prompt: cleanPrompt,
-            size: size
-          },
-          timestamp: new Date().toISOString()
-        });
       }
 
       case 'stability': {
         if (!apiKey) {
           return NextResponse.json({
             success: false,
-            error: 'Stability AI API key required',
+            error: 'Stability AI API key required. Get it from https://platform.stability.ai',
             requiresKey: true
           }, { status: 401 });
         }
 
-        // Call Stability AI API
-        const res = await fetch('https://api.stability.ai/v2beta/stable-image/generate/core', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-            'Accept': 'application/json'
-          },
-          body: JSON.stringify({
-            text_prompts: [{ text: cleanPrompt }],
-            cfg_scale: 7,
-            height: height,
-            width: width,
-            steps: 30,
-            samples: 1
-          })
-        });
+        console.log('[ImageGen] Stability AI request for:', cleanPrompt);
 
-        if (!res.ok) {
-          const error = await res.json().catch(() => ({}));
+        try {
+          const response = await fetch('https://api.stability.ai/v2beta/stable-image/generate/core', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiKey}`,
+              'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+              text_prompts: [{ text: cleanPrompt }],
+              cfg_scale: 7,
+              height: Math.min(height, 1024),
+              width: Math.min(width, 1024),
+              steps: 30,
+              samples: 1
+            })
+          });
+
+          if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            return NextResponse.json({
+              success: false,
+              error: error.message || `Stability AI error: ${response.status}`
+            }, { status: response.status });
+          }
+
+          const data = await response.json();
+          return NextResponse.json({
+            success: true,
+            data: {
+              image: `data:image/png;base64,${data.artifacts?.[0]?.base64 || data.image}`,
+              prompt: cleanPrompt,
+              size: size
+            },
+            timestamp: new Date().toISOString()
+          });
+
+        } catch (fetchError) {
+          console.error('[ImageGen] Stability fetch error:', fetchError);
           return NextResponse.json({
             success: false,
-            error: error.message || 'Stability AI API error'
-          }, { status: res.status });
+            error: 'Failed to connect to Stability AI. Check your API key.'
+          }, { status: 502 });
         }
-
-        const data = await res.json();
-        return NextResponse.json({
-          success: true,
-          data: {
-            image: `data:image/png;base64,${data.artifacts[0].base64}`,
-            prompt: cleanPrompt,
-            size: size
-          },
-          timestamp: new Date().toISOString()
-        });
       }
 
       default:
