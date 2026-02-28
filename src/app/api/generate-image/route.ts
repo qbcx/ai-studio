@@ -7,7 +7,7 @@ import { NextResponse } from 'next/server';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { prompt, size = '1024x1024', provider = 'huggingface', apiKey } = body;
+    const { prompt, size = '1024x1024', provider = 'zhipu', apiKey, removeWatermark } = body;
 
     if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
       return NextResponse.json({
@@ -21,90 +21,6 @@ export async function POST(request: Request) {
 
     // Handle different providers
     switch (provider) {
-      case 'huggingface': {
-        // Hugging Face Free Inference API - No API key required (with rate limits)
-        // Using Stable Diffusion XL for quality images
-        const model = 'stabilityai/stable-diffusion-xl-base-1.0';
-
-        console.log('[ImageGen] Hugging Face request for:', cleanPrompt);
-
-        try {
-          const response = await fetch(
-            `https://api-inference.huggingface.co/models/${model}`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                // Optional: Add HF token for higher rate limits
-                ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {})
-              },
-              body: JSON.stringify({
-                inputs: cleanPrompt,
-                parameters: {
-                  width: Math.min(width, 1024),
-                  height: Math.min(height, 1024),
-                  num_inference_steps: 30
-                }
-              })
-            }
-          );
-
-          if (!response.ok) {
-            const errorText = await response.text();
-
-            // Check if model is loading
-            if (response.status === 503) {
-              return NextResponse.json({
-                success: false,
-                error: 'Model is loading, please wait 30 seconds and try again',
-                retryable: true
-              }, { status: 503 });
-            }
-
-            // Rate limited
-            if (response.status === 429) {
-              return NextResponse.json({
-                success: false,
-                error: 'Rate limited. Try again in a minute or add a Hugging Face API token.'
-              }, { status: 429 });
-            }
-
-            console.error('[ImageGen] HF error:', errorText);
-            return NextResponse.json({
-              success: false,
-              error: `Hugging Face error: ${response.status}`
-            }, { status: response.status });
-          }
-
-          // Get image blob
-          const imageBuffer = await response.arrayBuffer();
-          const base64 = btoa(
-            new Uint8Array(imageBuffer).reduce(
-              (data, byte) => data + String.fromCharCode(byte),
-              ''
-            )
-          );
-          const dataUrl = `data:image/png;base64,${base64}`;
-
-          return NextResponse.json({
-            success: true,
-            data: {
-              image: dataUrl,
-              prompt: cleanPrompt,
-              size: size
-            },
-            timestamp: new Date().toISOString()
-          });
-
-        } catch (fetchError) {
-          console.error('[ImageGen] HF fetch error:', fetchError);
-          return NextResponse.json({
-            success: false,
-            error: 'Failed to connect to Hugging Face. Please try again.'
-          }, { status: 502 });
-        }
-      }
-
       case 'zhipu': {
         if (!apiKey) {
           return NextResponse.json({
@@ -127,7 +43,9 @@ export async function POST(request: Request) {
             body: JSON.stringify({
               model: 'cogview-4',
               prompt: cleanPrompt,
-              size: size
+              size: size,
+              // Add watermark removal if supported
+              ...(removeWatermark && { nologo: true })
             })
           });
 
@@ -192,7 +110,8 @@ export async function POST(request: Request) {
               prompt: cleanPrompt,
               n: 1,
               size: size as '1024x1024' | '1792x1024' | '1024x1792',
-              quality: 'standard'
+              quality: 'standard',
+              response_format: 'url'
             })
           });
 
@@ -212,7 +131,9 @@ export async function POST(request: Request) {
               prompt: cleanPrompt,
               size: size
             },
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            // Note: DALL-E 3 includes watermarks by default
+            watermarkNote: removeWatermark ? 'DALL-E 3 images include embedded watermarks that cannot be removed via API' : undefined
           });
 
         } catch (fetchError) {
@@ -236,21 +157,21 @@ export async function POST(request: Request) {
         console.log('[ImageGen] Stability AI request for:', cleanPrompt);
 
         try {
-          const response = await fetch('https://api.stability.ai/v2beta/stable-image/generate/core', {
+          const formData = new FormData();
+          formData.append('text_prompts[0][text]', cleanPrompt);
+          formData.append('cfg_scale', '7');
+          formData.append('height', String(Math.min(height, 1024)));
+          formData.append('width', String(Math.min(width, 1024)));
+          formData.append('steps', '30');
+          formData.append('samples', '1');
+
+          const response = await fetch('https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image', {
             method: 'POST',
             headers: {
-              'Content-Type': 'application/json',
               'Authorization': `Bearer ${apiKey}`,
               'Accept': 'application/json'
             },
-            body: JSON.stringify({
-              text_prompts: [{ text: cleanPrompt }],
-              cfg_scale: 7,
-              height: Math.min(height, 1024),
-              width: Math.min(width, 1024),
-              steps: 30,
-              samples: 1
-            })
+            body: formData
           });
 
           if (!response.ok) {
@@ -262,10 +183,19 @@ export async function POST(request: Request) {
           }
 
           const data = await response.json();
+          const imageData = data.artifacts?.[0]?.base64;
+
+          if (!imageData) {
+            return NextResponse.json({
+              success: false,
+              error: 'No image data in response'
+            }, { status: 500 });
+          }
+
           return NextResponse.json({
             success: true,
             data: {
-              image: `data:image/png;base64,${data.artifacts?.[0]?.base64 || data.image}`,
+              image: `data:image/png;base64,${imageData}`,
               prompt: cleanPrompt,
               size: size
             },

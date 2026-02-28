@@ -18,7 +18,8 @@ import {
   AlertCircle,
   Eye,
   EyeOff,
-  RefreshCw
+  RefreshCw,
+  Play
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -37,6 +38,15 @@ interface GeneratedImage {
   loading?: boolean
 }
 
+interface GeneratedVideo {
+  id: string
+  taskId: string
+  status: 'PROCESSING' | 'SUCCESS' | 'FAIL'
+  videoUrl?: string
+  prompt: string
+  timestamp?: string
+}
+
 // Simple ID generator
 const genId = () => Math.random().toString(36).slice(2, 10)
 
@@ -49,7 +59,6 @@ const SIZES = [
 
 // Provider options
 const IMAGE_PROVIDERS = [
-  { id: 'huggingface', name: 'Hugging Face (Free)', needsKey: false },
   { id: 'zhipu', name: 'Zhipu AI (CogView)', needsKey: true },
   { id: 'openai', name: 'OpenAI DALL-E', needsKey: true },
   { id: 'stability', name: 'Stability AI', needsKey: true },
@@ -71,14 +80,21 @@ export default function StudioPage() {
   // Tab
   const [activeTab, setActiveTab] = useState<'image' | 'video'>('image')
 
-  // Generation
+  // Image Generation
   const [prompt, setPrompt] = useState('')
   const [size, setSize] = useState('1024x1024')
   const [isGenerating, setIsGenerating] = useState(false)
   const [images, setImages] = useState<GeneratedImage[]>([])
 
+  // Video Generation
+  const [videos, setVideos] = useState<GeneratedVideo[]>([])
+  const [isGeneratingVideo, setIsGeneratingVideo] = useState(false)
+
+  // Watermark option
+  const [removeWatermark, setRemoveWatermark] = useState(true)
+
   // Provider & API Key
-  const [provider, setProvider] = useState('pollinations')
+  const [provider, setProvider] = useState('zhipu')
   const [apiKey, setApiKey] = useState('')
   const [showKey, setShowKey] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
@@ -158,7 +174,6 @@ export default function StudioPage() {
     setKeyStatus('idle')
 
     try {
-      // Try a minimal API call to test the key
       const res = await fetch('/api/test-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -205,7 +220,8 @@ export default function StudioPage() {
           prompt: prompt.trim(),
           size,
           provider,
-          apiKey: needsKey ? apiKey : null
+          apiKey: needsKey ? apiKey : null,
+          removeWatermark
         })
       })
 
@@ -233,6 +249,122 @@ export default function StudioPage() {
     }
   }
 
+  // Generate Video
+  const generateVideo = async () => {
+    if (!prompt.trim()) {
+      toast.error('Please enter a prompt')
+      return
+    }
+
+    if (needsKey && !apiKey.trim()) {
+      toast.error('Please add your API key')
+      return
+    }
+
+    setIsGeneratingVideo(true)
+    toast.loading('Creating video task...', { id: 'gen-video' })
+
+    try {
+      const res = await fetch('/api/generate-video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: prompt.trim(),
+          provider,
+          apiKey: needsKey ? apiKey : null,
+          quality: 'speed',
+          duration: 5
+        })
+      })
+
+      const data = await res.json()
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to create video task')
+      }
+
+      const newVideo: GeneratedVideo = {
+        id: genId(),
+        taskId: data.data.taskId,
+        status: 'PROCESSING',
+        prompt: prompt.trim(),
+        timestamp: data.timestamp
+      }
+
+      setVideos(prev => [newVideo, ...prev])
+      toast.success('Video task created! Processing...', { id: 'gen-video' })
+      setPrompt('')
+
+      // Start polling for video status
+      pollVideoStatus(data.data.taskId, newVideo.id)
+
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to generate video'
+      toast.error(message, { id: 'gen-video', duration: 5000 })
+      setIsGeneratingVideo(false)
+    }
+  }
+
+  // Poll video status
+  const pollVideoStatus = async (taskId: string, videoId: string) => {
+    const maxPolls = 60
+    const pollInterval = 5000
+    let pollCount = 0
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/video-status?taskId=${taskId}&provider=${provider}`, {
+          headers: {
+            'X-API-Key': apiKey
+          }
+        })
+        const data = await res.json()
+
+        pollCount++
+
+        if (data.success && data.data?.status === 'SUCCESS' && data.data?.videoUrl) {
+          setVideos(prev =>
+            prev.map(v =>
+              v.taskId === taskId
+                ? { ...v, status: 'SUCCESS', videoUrl: data.data.videoUrl }
+                : v
+            )
+          )
+          toast.success('Video ready!')
+          setIsGeneratingVideo(false)
+          return
+        }
+
+        if (data.success && data.data?.status === 'FAIL') {
+          setVideos(prev =>
+            prev.map(v =>
+              v.taskId === taskId
+                ? { ...v, status: 'FAIL' }
+                : v
+            )
+          )
+          toast.error('Video generation failed')
+          setIsGeneratingVideo(false)
+          return
+        }
+
+        if (pollCount < maxPolls) {
+          setTimeout(poll, pollInterval)
+        } else {
+          toast.error('Video generation timeout')
+          setIsGeneratingVideo(false)
+        }
+      } catch (error) {
+        console.error('Polling error:', error)
+        if (pollCount < maxPolls) {
+          setTimeout(poll, pollInterval)
+        }
+      }
+    }
+
+    poll()
+  }
+
   // Download image
   const downloadImage = (img: GeneratedImage) => {
     const link = document.createElement('a')
@@ -242,16 +374,22 @@ export default function StudioPage() {
     toast.success('Downloaded!')
   }
 
+  // Download video
+  const downloadVideo = (vid: GeneratedVideo) => {
+    if (!vid.videoUrl) return
+    const link = document.createElement('a')
+    link.href = vid.videoUrl
+    link.download = `ai-video-${vid.id}.mp4`
+    link.click()
+    toast.success('Downloaded!')
+  }
+
   // Retry image generation
   const retryImage = (img: GeneratedImage) => {
-    // Remove failed image and regenerate
     setImages(prev => prev.filter(i => i.id !== img.id))
     setPrompt(img.prompt)
     setSize(img.size)
-    // Auto regenerate after a short delay
-    setTimeout(() => {
-      generateImage()
-    }, 100)
+    setTimeout(() => generateImage(), 100)
   }
 
   // Mark image as loaded
@@ -267,6 +405,8 @@ export default function StudioPage() {
       img.id === id ? { ...img, loading: false, error: true } : img
     ))
   }
+
+  const isGenerating = activeTab === 'image' ? isGenerating : isGeneratingVideo
 
   return (
     <div className={cn(
@@ -370,66 +510,64 @@ export default function StudioPage() {
             </div>
           </Card>
 
-          {/* API Key Input (only if needed) */}
-          {needsKey && (
-            <Card className={cn(
-              'p-4 border-0',
-              isDark ? 'bg-zinc-900' : 'bg-zinc-50'
-            )}>
-              <div className="flex items-center gap-2 mb-2">
-                <Key className="w-4 h-4 text-zinc-500" />
-                <span className="text-sm font-medium">API Key</span>
-                {keyStatus === 'valid' && (
-                  <span className="flex items-center gap-1 text-xs text-green-500">
-                    <Check className="w-3 h-3" /> Valid
-                  </span>
-                )}
-                {keyStatus === 'invalid' && (
-                  <span className="flex items-center gap-1 text-xs text-red-500">
-                    <AlertCircle className="w-3 h-3" /> Invalid
-                  </span>
-                )}
-              </div>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Input
-                    type={showKey ? 'text' : 'password'}
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder={`Enter your ${currentProvider.name} API key`}
-                    className={cn('pr-10', isDark ? 'bg-zinc-800' : 'bg-white')}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowKey(!showKey)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
-                  >
-                    {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-                <Button
-                  variant="outline"
-                  onClick={testApiKey}
-                  disabled={isTesting || !apiKey.trim()}
-                  className="shrink-0"
+          {/* API Key Input */}
+          <Card className={cn(
+            'p-4 border-0',
+            isDark ? 'bg-zinc-900' : 'bg-zinc-50'
+          )}>
+            <div className="flex items-center gap-2 mb-2">
+              <Key className="w-4 h-4 text-zinc-500" />
+              <span className="text-sm font-medium">API Key</span>
+              {keyStatus === 'valid' && (
+                <span className="flex items-center gap-1 text-xs text-green-500">
+                  <Check className="w-3 h-3" /> Valid
+                </span>
+              )}
+              {keyStatus === 'invalid' && (
+                <span className="flex items-center gap-1 text-xs text-red-500">
+                  <AlertCircle className="w-3 h-3" /> Invalid
+                </span>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Input
+                  type={showKey ? 'text' : 'password'}
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder={`Enter your ${currentProvider?.name} API key`}
+                  className={cn('pr-10', isDark ? 'bg-zinc-800' : 'bg-white')}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowKey(!showKey)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
                 >
-                  {isTesting ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    'Test'
-                  )}
-                </Button>
+                  {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
-              <a
-                href={getProviderUrl(provider)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-violet-500 hover:underline mt-2"
+              <Button
+                variant="outline"
+                onClick={testApiKey}
+                disabled={isTesting || !apiKey.trim()}
+                className="shrink-0"
               >
-                Get API key <ExternalLink className="w-3 h-3" />
-              </a>
-            </Card>
-          )}
+                {isTesting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  'Test'
+                )}
+              </Button>
+            </div>
+            <a
+              href={getProviderUrl(provider)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-violet-500 hover:underline mt-2"
+            >
+              Get API key <ExternalLink className="w-3 h-3" />
+            </a>
+          </Card>
 
           {/* Prompt Input */}
           <Card className={cn(
@@ -452,33 +590,46 @@ export default function StudioPage() {
 
             <div className="flex flex-wrap items-center justify-between gap-4 mt-4">
               {activeTab === 'image' && (
-                <div className="flex gap-2">
-                  {SIZES.map((s) => (
-                    <button
-                      key={s.value}
-                      onClick={() => setSize(s.value)}
-                      className={cn(
-                        'px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
-                        size === s.value
-                          ? 'bg-violet-500 text-white'
-                          : isDark ? 'bg-zinc-800 text-zinc-400' : 'bg-white text-zinc-600'
-                      )}
-                    >
-                      {s.label}
-                    </button>
-                  ))}
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="flex gap-2">
+                    {SIZES.map((s) => (
+                      <button
+                        key={s.value}
+                        onClick={() => setSize(s.value)}
+                        className={cn(
+                          'px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+                          size === s.value
+                            ? 'bg-violet-500 text-white'
+                            : isDark ? 'bg-zinc-800 text-zinc-400' : 'bg-white text-zinc-600'
+                        )}
+                      >
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Watermark removal option */}
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={removeWatermark}
+                      onChange={(e) => setRemoveWatermark(e.target.checked)}
+                      className="w-4 h-4 rounded border-zinc-300 text-violet-500 focus:ring-violet-500"
+                    />
+                    <span className="text-sm text-zinc-500">Remove watermark</span>
+                  </label>
                 </div>
               )}
 
               <Button
-                onClick={generateImage}
-                disabled={isGenerating || !prompt.trim() || (needsKey && !apiKey.trim())}
+                onClick={activeTab === 'image' ? generateImage : generateVideo}
+                disabled={isGenerating || !prompt.trim() || !apiKey.trim()}
                 className="ml-auto px-6 h-10 bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-600 hover:to-fuchsia-600 text-white rounded-xl font-medium"
               >
                 {isGenerating ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Creating...
+                    {activeTab === 'image' ? 'Creating...' : 'Processing...'}
                   </>
                 ) : (
                   <>
@@ -490,96 +641,185 @@ export default function StudioPage() {
             </div>
           </Card>
 
-          {/* Results */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {images.length === 0 ? (
-              <div className="col-span-full flex flex-col items-center justify-center py-16">
-                <div className={cn(
-                  'w-14 h-14 rounded-xl flex items-center justify-center mb-3',
-                  isDark ? 'bg-zinc-900' : 'bg-zinc-100'
-                )}>
-                  <ImageIcon className="w-6 h-6 text-zinc-400" />
+          {/* Image Results */}
+          {activeTab === 'image' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {images.length === 0 ? (
+                <div className="col-span-full flex flex-col items-center justify-center py-16">
+                  <div className={cn(
+                    'w-14 h-14 rounded-xl flex items-center justify-center mb-3',
+                    isDark ? 'bg-zinc-900' : 'bg-zinc-100'
+                  )}>
+                    <ImageIcon className="w-6 h-6 text-zinc-400" />
+                  </div>
+                  <p className="text-zinc-500 text-sm">Generated images will appear here</p>
                 </div>
-                <p className="text-zinc-500 text-sm">Generated images will appear here</p>
-              </div>
-            ) : (
-              images.map((item) => (
-                <Card
-                  key={item.id}
-                  className={cn(
-                    'overflow-hidden border-0',
-                    isDark ? 'bg-zinc-900' : 'bg-white'
-                  )}
-                >
-                  <div className="aspect-square relative group">
-                    {/* Loading state */}
-                    {item.loading && (
-                      <div className={cn(
-                        'absolute inset-0 flex items-center justify-center',
-                        isDark ? 'bg-zinc-800' : 'bg-zinc-100'
-                      )}>
-                        <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
-                      </div>
+              ) : (
+                images.map((item) => (
+                  <Card
+                    key={item.id}
+                    className={cn(
+                      'overflow-hidden border-0',
+                      isDark ? 'bg-zinc-900' : 'bg-white'
                     )}
-
-                    {/* Error state */}
-                    {item.error && (
-                      <div className={cn(
-                        'absolute inset-0 flex flex-col items-center justify-center gap-3',
-                        isDark ? 'bg-zinc-800' : 'bg-zinc-100'
-                      )}>
-                        <AlertCircle className="w-8 h-8 text-red-400" />
-                        <p className="text-sm text-zinc-500 text-center px-4">Failed to load image</p>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => retryImage(item)}
-                        >
-                          <RefreshCw className="w-4 h-4 mr-1" />
-                          Retry
-                        </Button>
-                      </div>
-                    )}
-
-                    <img
-                      src={item.image}
-                      alt={item.prompt}
-                      className={cn(
-                        'w-full h-full object-cover transition-opacity duration-500',
-                        item.loading || item.error ? 'opacity-0' : 'opacity-1'
+                  >
+                    <div className="aspect-square relative group">
+                      {item.loading && (
+                        <div className={cn(
+                          'absolute inset-0 flex items-center justify-center z-10',
+                          isDark ? 'bg-zinc-800' : 'bg-zinc-100'
+                        )}>
+                          <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
+                        </div>
                       )}
-                      onLoad={() => imageLoaded(item.id)}
-                      onError={() => imageFailed(item.id)}
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                      <div className="absolute bottom-0 left-0 right-0 p-3">
-                        <div className="flex gap-2">
+
+                      {item.error && (
+                        <div className={cn(
+                          'absolute inset-0 flex flex-col items-center justify-center gap-3 z-10',
+                          isDark ? 'bg-zinc-800' : 'bg-zinc-100'
+                        )}>
+                          <AlertCircle className="w-8 h-8 text-red-400" />
+                          <p className="text-sm text-zinc-500 text-center px-4">Failed to load image</p>
                           <Button
                             size="sm"
-                            onClick={() => downloadImage(item)}
-                            className="flex-1 bg-white/20 backdrop-blur hover:bg-white/30"
+                            variant="outline"
+                            onClick={() => retryImage(item)}
                           >
-                            <Download className="w-4 h-4 mr-1" />
-                            Save
+                            <RefreshCw className="w-4 h-4 mr-1" />
+                            Retry
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => setImages(prev => prev.filter(i => i.id !== item.id))}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                        </div>
+                      )}
+
+                      <img
+                        src={item.image}
+                        alt={item.prompt}
+                        className={cn(
+                          'w-full h-full object-cover transition-opacity duration-500',
+                          item.loading || item.error ? 'opacity-0' : 'opacity-100'
+                        )}
+                        onLoad={() => imageLoaded(item.id)}
+                        onError={() => imageFailed(item.id)}
+                      />
+
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="absolute bottom-0 left-0 right-0 p-3">
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              onClick={() => downloadImage(item)}
+                              className="flex-1 bg-white/20 backdrop-blur hover:bg-white/30"
+                            >
+                              <Download className="w-4 h-4 mr-1" />
+                              Save
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => setImages(prev => prev.filter(i => i.id !== item.id))}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     </div>
+                    <div className="p-3">
+                      <p className="text-sm text-zinc-500 line-clamp-2">{item.prompt}</p>
+                    </div>
+                  </Card>
+                ))
+              )}
+            </div>
+          )}
+
+          {/* Video Results */}
+          {activeTab === 'video' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {videos.length === 0 ? (
+                <div className="col-span-full flex flex-col items-center justify-center py-16">
+                  <div className={cn(
+                    'w-14 h-14 rounded-xl flex items-center justify-center mb-3',
+                    isDark ? 'bg-zinc-900' : 'bg-zinc-100'
+                  )}>
+                    <Video className="w-6 h-6 text-zinc-400" />
                   </div>
-                  <div className="p-3">
-                    <p className="text-sm text-zinc-500 line-clamp-2">{item.prompt}</p>
-                  </div>
-                </Card>
-              ))
-            )}
-          </div>
+                  <p className="text-zinc-500 text-sm">Generated videos will appear here</p>
+                </div>
+              ) : (
+                videos.map((item) => (
+                  <Card
+                    key={item.id}
+                    className={cn(
+                      'overflow-hidden border-0',
+                      isDark ? 'bg-zinc-900' : 'bg-white'
+                    )}
+                  >
+                    <div className="aspect-video relative group">
+                      {item.status === 'PROCESSING' && (
+                        <div className={cn(
+                          'absolute inset-0 flex flex-col items-center justify-center',
+                          isDark ? 'bg-zinc-800' : 'bg-zinc-100'
+                        )}>
+                          <Loader2 className="w-8 h-8 animate-spin text-violet-500 mb-3" />
+                          <p className="text-sm text-zinc-500">Processing video...</p>
+                          <p className="text-xs text-zinc-400 mt-1">This may take a few minutes</p>
+                        </div>
+                      )}
+
+                      {item.status === 'FAIL' && (
+                        <div className={cn(
+                          'absolute inset-0 flex flex-col items-center justify-center gap-3',
+                          isDark ? 'bg-zinc-800' : 'bg-zinc-100'
+                        )}>
+                          <AlertCircle className="w-8 h-8 text-red-400" />
+                          <p className="text-sm text-zinc-500">Video generation failed</p>
+                        </div>
+                      )}
+
+                      {item.status === 'SUCCESS' && item.videoUrl && (
+                        <>
+                          <video
+                            src={item.videoUrl}
+                            controls
+                            className="w-full h-full object-cover"
+                            preload="metadata"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                            <div className="absolute bottom-0 left-0 right-0 p-3">
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  onClick={() => downloadVideo(item)}
+                                  className="flex-1 bg-white/20 backdrop-blur hover:bg-white/30"
+                                >
+                                  <Download className="w-4 h-4 mr-1" />
+                                  Save
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => setVideos(prev => prev.filter(v => v.id !== item.id))}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    <div className="p-3">
+                      <p className="text-sm text-zinc-500 line-clamp-2">{item.prompt}</p>
+                      {item.status === 'SUCCESS' && (
+                        <span className="inline-block mt-1 text-xs text-green-500">Ready</span>
+                      )}
+                    </div>
+                  </Card>
+                ))
+              )}
+            </div>
+          )}
         </motion.div>
       </main>
     </div>
@@ -589,7 +829,6 @@ export default function StudioPage() {
 // Get provider dashboard URL
 function getProviderUrl(provider: string): string {
   const urls: Record<string, string> = {
-    huggingface: 'https://huggingface.co/settings/tokens',
     zhipu: 'https://open.bigmodel.cn',
     openai: 'https://platform.openai.com/api-keys',
     stability: 'https://platform.stability.ai/account/keys',
