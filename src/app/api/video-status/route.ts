@@ -1,32 +1,83 @@
 export const runtime = 'edge';
 
-import ZAI from 'z-ai-web-dev-sdk';
 import { NextResponse } from 'next/server';
+import ZAI from 'z-ai-web-dev-sdk';
+import { videoStatusSchema } from '@/features/ai-generator/schemas';
+import {
+  successResponse,
+  errorResponse,
+  validationErrorResponse,
+  type ApiResponse
+} from '@/lib/api-response';
+import {
+  logError,
+  debugLog,
+  createApiError
+} from '@/lib/errors';
+import type { VideoStatusResponse } from '@/features/ai-generator/types';
 
-export async function GET(request: Request) {
+// GET /api/video-status?taskId=xxx
+// Checks the status of a video generation task
+export async function GET(request: Request): Promise<NextResponse<ApiResponse<VideoStatusResponse>>> {
+  const requestId = crypto.randomUUID().slice(0, 8);
+
   try {
-    const zai = await ZAI.create();
     const { searchParams } = new URL(request.url);
-    const taskId = searchParams.get('taskId');
 
-    if (!taskId) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'taskId is required' 
-      }, { status: 400 });
+    // Validate query parameters
+    const parseResult = videoStatusSchema.safeParse({
+      taskId: searchParams.get('taskId')
+    });
+
+    if (!parseResult.success) {
+      return validationErrorResponse('taskId parameter is required');
     }
 
+    const { taskId } = parseResult.data;
+
+    debugLog('VideoStatus', `[${requestId}] Checking status for task`, { taskId });
+
+    // Initialize AI SDK
+    const zai = await ZAI.create();
+
+    // Get video status
     const response = await zai.videos.generations.status(taskId);
 
-    return NextResponse.json({ 
-      success: true, 
+    debugLog('VideoStatus', `[${requestId}] Status response`, {
       status: response.status,
-      video: response.video 
+      hasVideo: !!response.video
     });
-  } catch (error: any) {
-    return NextResponse.json({ 
-      success: false, 
-      error: error.message 
-    }, { status: 500 });
+
+    // Handle different statuses
+    if (response.status === 'SUCCESS') {
+      const videoUrl = response.video;
+
+      if (!videoUrl) {
+        throw createApiError('Video completed but no URL returned', {
+          taskId,
+          status: response.status
+        });
+      }
+
+      return successResponse({
+        status: 'SUCCESS',
+        videoUrl
+      });
+    }
+
+    if (response.status === 'FAIL') {
+      return successResponse({
+        status: 'FAIL'
+      });
+    }
+
+    // Still processing
+    return successResponse({
+      status: 'PROCESSING'
+    });
+
+  } catch (error) {
+    logError('VideoStatus', error);
+    return errorResponse(error, 'Failed to check video status');
   }
 }
