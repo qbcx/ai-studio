@@ -80,37 +80,38 @@
 }
 
 .dark {
-  --background: oklch(0.12 0.02 280);
-  --foreground: oklch(0.96 0.005 280);
-  --card: oklch(0.17 0.02 280);
-  --card-foreground: oklch(0.96 0.005 280);
-  --popover: oklch(0.17 0.02 280);
-  --popover-foreground: oklch(0.96 0.005 280);
-  --primary: oklch(0.7 0.22 290);
-  --primary-foreground: oklch(0.12 0.02 280);
-  --secondary: oklch(0.22 0.02 280);
-  --secondary-foreground: oklch(0.96 0.005 280);
-  --muted: oklch(0.22 0.02 280);
-  --muted-foreground: oklch(0.65 0.02 280);
-  --accent: oklch(0.25 0.04 290);
-  --accent-foreground: oklch(0.96 0.005 280);
-  --destructive: oklch(0.6 0.22 25);
-  --border: oklch(0.25 0.02 280);
-  --input: oklch(0.25 0.02 280);
-  --ring: oklch(0.7 0.22 290);
-  --chart-1: oklch(0.65 0.22 280);
-  --chart-2: oklch(0.6 0.15 180);
-  --chart-3: oklch(0.7 0.18 50);
-  --chart-4: oklch(0.65 0.25 320);
-  --chart-5: oklch(0.6 0.2 20);
-  --sidebar: oklch(0.15 0.02 280);
-  --sidebar-foreground: oklch(0.96 0.005 280);
-  --sidebar-primary: oklch(0.7 0.22 290);
-  --sidebar-primary-foreground: oklch(0.12 0.02 280);
-  --sidebar-accent: oklch(0.25 0.04 290);
-  --sidebar-accent-foreground: oklch(0.96 0.005 280);
-  --sidebar-border: oklch(0.25 0.02 280);
-  --sidebar-ring: oklch(0.7 0.22 290);
+  /* ContentMachine-inspired dark theme */
+  --background: #0d0d0d;
+  --foreground: #f0f0f0;
+  --card: #161616;
+  --card-foreground: #f0f0f0;
+  --popover: #1e1e1e;
+  --popover-foreground: #f0f0f0;
+  --primary: #6366f1;
+  --primary-foreground: #ffffff;
+  --secondary: #1e1e1e;
+  --secondary-foreground: #f0f0f0;
+  --muted: #1e1e1e;
+  --muted-foreground: #888888;
+  --accent: #6366f1;
+  --accent-foreground: #ffffff;
+  --destructive: #ef4444;
+  --border: #2a2a2a;
+  --input: #1e1e1e;
+  --ring: #6366f1;
+  --chart-1: #6366f1;
+  --chart-2: #22c55e;
+  --chart-3: #f59e0b;
+  --chart-4: #ec4899;
+  --chart-5: #06b6d4;
+  --sidebar: #0d0d0d;
+  --sidebar-foreground: #f0f0f0;
+  --sidebar-primary: #6366f1;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #6366f1;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #2a2a2a;
+  --sidebar-ring: #6366f1;
 }
 
 @layer base {
@@ -164,10 +165,119 @@
   animation: gradient-shift 8s ease infinite;
 }
 
+/* Shimmer loading effect */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* Pulse glow effect */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 20px 5px rgba(99, 102, 241, 0.2);
+  }
+}
+
+.pulse-glow {
+  animation: pulse-glow 2s infinite;
+}
+
+/* Fade in animation */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+/* Scale in animation */
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-scale-in {
+  animation: scale-in 0.2s ease-out;
+}
+
 /* Glass effect */
 .glass {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+}
+
+/* Surface elevation levels (ContentMachine style) */
+.surface {
+  background-color: #161616;
+}
+
+.surface-raised {
+  background-color: #1e1e1e;
+}
+
+.surface-overlay {
+  background-color: #242424;
+}
+
+/* Card hover effect */
+.card-hover {
+  transition: all 0.2s ease;
+}
+
+.card-hover:hover {
+  background-color: #1e1e1e;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Focus ring */
+.focus-ring:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+
+/* Status indicators */
+.status-processing {
+  color: #f59e0b;
+}
+
+.status-success {
+  color: #22c55e;
+}
+
+.status-error {
+  color: #ef4444;
 }
 
 /* Reduced motion */
