@@ -1,187 +1,165 @@
-// AI Provider Configuration
-// Contains all supported AI providers with their costs, features, and dashboard links
+// AI Provider Configuration - 2026
+// Supported providers with costs, features, and dashboard links
 
 export interface AIProvider {
   id: string
   name: string
   description: string
   dashboardUrl: string
-  docsUrl?: string
   features: {
     image: boolean
     video: boolean
   }
   pricing: {
-    image?: string
-    video?: string
     free?: string
+    paid?: string
   }
-  models: {
-    image?: string[]
-    video?: string[]
-  }
-  requiresKey: boolean
+  popular?: boolean
+  new?: boolean
   icon: string
 }
 
 export const AI_PROVIDERS: AIProvider[] = [
+  // ===== FREE / FREEMIUM =====
   {
     id: 'pollinations',
     name: 'Pollinations.ai',
-    description: 'Free AI image generation - no API key required',
+    description: '100% free AI image generation, no signup',
     dashboardUrl: 'https://pollinations.ai',
-    docsUrl: 'https://github.com/pollinations/pollinations',
-    features: {
-      image: true,
-      video: false
-    },
-    pricing: {
-      image: '100% Free',
-      free: 'Unlimited image generation'
-    },
-    models: {
-      image: ['flux', 'turbo']
-    },
-    requiresKey: false,
+    features: { image: true, video: false },
+    pricing: { free: 'Unlimited free images' },
+    popular: true,
     icon: '🌸'
   },
   {
+    id: 'seedance',
+    name: 'Seedance 2.0',
+    description: 'ByteDance video AI - cinematic quality',
+    dashboardUrl: 'https://jimeng.jianying.com',
+    features: { image: true, video: true },
+    pricing: { free: '60-100 daily credits', paid: '¥69/month' },
+    new: true,
+    popular: true,
+    icon: '🎬'
+  },
+  {
     id: 'zhipu',
-    name: 'Zhipu AI (BigModel)',
-    description: 'Chinese AI provider with GLM models and CogVideoX',
+    name: 'Zhipu AI',
+    description: 'GLM & CogVideoX models',
     dashboardUrl: 'https://open.bigmodel.cn',
-    docsUrl: 'https://open.bigmodel.cn/dev/api',
-    features: {
-      image: true,
-      video: true
-    },
-    pricing: {
-      image: 'Free tier available',
-      video: '~¥0.5-2 per video'
-    },
-    models: {
-      image: ['cogview-3-plus'],
-      video: ['cogvideox']
-    },
-    requiresKey: true,
+    features: { image: true, video: true },
+    pricing: { free: 'Free tier available', paid: 'Pay per use' },
     icon: '🤖'
   },
+
+  // ===== POPULAR PAID =====
   {
     id: 'openai',
     name: 'OpenAI',
-    description: 'GPT-4 and DALL-E models for image generation',
+    description: 'GPT-4V, DALL-E 3, Sora 2',
     dashboardUrl: 'https://platform.openai.com/api-keys',
-    docsUrl: 'https://platform.openai.com/docs',
-    features: {
-      image: true,
-      video: false
-    },
-    pricing: {
-      image: '$0.02-0.12 per image (DALL-E 3)',
-      free: 'Free credits for new accounts'
-    },
-    models: {
-      image: ['dall-e-3', 'dall-e-2']
-    },
-    requiresKey: true,
+    features: { image: true, video: true },
+    pricing: { paid: 'DALL-E: $0.02-0.12/img, Sora: $0.30-0.50/sec' },
+    popular: true,
     icon: '🟢'
+  },
+  {
+    id: 'midjourney',
+    name: 'Midjourney',
+    description: 'Best artistic image quality',
+    dashboardUrl: 'https://www.midjourney.com',
+    features: { image: true, video: false },
+    pricing: { paid: '$10-60/month' },
+    popular: true,
+    icon: '🎨'
+  },
+  {
+    id: 'runway',
+    name: 'Runway Gen-3',
+    description: 'Professional video generation',
+    dashboardUrl: 'https://runwayml.com',
+    features: { image: true, video: true },
+    pricing: { free: '125 credits free', paid: '$12-76/month' },
+    icon: '✈️'
+  },
+  {
+    id: 'kling',
+    name: 'Kling AI',
+    description: 'High quality video generation',
+    dashboardUrl: 'https://klingai.com',
+    features: { image: false, video: true },
+    pricing: { free: 'Daily free credits', paid: 'Subscription' },
+    new: true,
+    icon: '🎥'
+  },
+  {
+    id: 'pika',
+    name: 'Pika Labs',
+    description: 'Fast AI video generation',
+    dashboardUrl: 'https://pika.art',
+    features: { image: false, video: true },
+    pricing: { free: 'Limited free tier', paid: '$8-58/month' },
+    icon: '⚡'
+  },
+  {
+    id: 'leonardo',
+    name: 'Leonardo.ai',
+    description: 'Creative AI with fine control',
+    dashboardUrl: 'https://leonardo.ai',
+    features: { image: true, video: true },
+    pricing: { free: '150 daily tokens', paid: '$10-48/month' },
+    icon: '🖼️'
+  },
+  {
+    id: 'ideogram',
+    name: 'Ideogram 2.0',
+    description: 'Best text rendering in images',
+    dashboardUrl: 'https://ideogram.ai',
+    features: { image: true, video: false },
+    pricing: { free: '10-20 free images/day', paid: '$8-20/month' },
+    icon: '📝'
+  },
+  {
+    id: 'recraft',
+    name: 'Recraft V3',
+    description: 'Professional vector & raster',
+    dashboardUrl: 'https://www.recraft.ai',
+    features: { image: true, video: false },
+    pricing: { free: 'Free tier', paid: '$10-36/month' },
+    icon: '🎭'
   },
   {
     id: 'stability',
     name: 'Stability AI',
-    description: 'Stable Diffusion and Stable Video Diffusion',
-    dashboardUrl: 'https://platform.stability.ai/account/keys',
-    docsUrl: 'https://platform.stability.ai/docs',
-    features: {
-      image: true,
-      video: true
-    },
-    pricing: {
-      image: '$0.002-0.04 per image',
-      video: '$0.10-0.50 per video'
-    },
-    models: {
-      image: ['stable-diffusion-xl', 'stable-diffusion-3'],
-      video: ['stable-video-diffusion']
-    },
-    requiresKey: true,
-    icon: '🎨'
+    description: 'Stable Diffusion & SVD',
+    dashboardUrl: 'https://platform.stability.ai',
+    features: { image: true, video: true },
+    pricing: { paid: '$0.002-0.04/image' },
+    icon: '🎪'
   },
   {
     id: 'replicate',
     name: 'Replicate',
-    description: 'Run open-source AI models with pay-per-second pricing',
-    dashboardUrl: 'https://replicate.com/account/api-tokens',
-    docsUrl: 'https://replicate.com/docs',
-    features: {
-      image: true,
-      video: true
-    },
-    pricing: {
-      image: '$0.01-0.10 per image',
-      video: '$0.05-0.50 per video'
-    },
-    models: {
-      image: ['flux-schnell', 'flux-dev', 'sdxl'],
-      video: ['stable-video-diffusion', 'cogvideox']
-    },
-    requiresKey: true,
+    description: 'Run any open-source model',
+    dashboardUrl: 'https://replicate.com',
+    features: { image: true, video: true },
+    pricing: { paid: 'Pay per second' },
     icon: '🔄'
-  },
-  {
-    id: 'together',
-    name: 'Together AI',
-    description: 'Fast inference for open-source models',
-    dashboardUrl: 'https://api.together.xyz/settings/api-keys',
-    docsUrl: 'https://docs.together.ai',
-    features: {
-      image: true,
-      video: false
-    },
-    pricing: {
-      image: '$0.002-0.08 per image',
-      free: '$1 free credits'
-    },
-    models: {
-      image: ['flux-schnell', 'stable-diffusion-xl']
-    },
-    requiresKey: true,
-    icon: '⚡'
-  },
-  {
-    id: 'fal',
-    name: 'Fal.ai',
-    description: 'Fast AI inference with optimized models',
-    dashboardUrl: 'https://fal.ai/dashboard/keys',
-    docsUrl: 'https://fal.ai/docs',
-    features: {
-      image: true,
-      video: true
-    },
-    pricing: {
-      image: '$0.005-0.05 per image',
-      video: '$0.10-0.30 per video'
-    },
-    models: {
-      image: ['flux', 'sdxl-turbo'],
-      video: ['stable-video']
-    },
-    requiresKey: true,
-    icon: '🦅'
   }
 ]
 
-// Helper to get provider by ID
 export function getProvider(id: string): AIProvider | undefined {
   return AI_PROVIDERS.find(p => p.id === id)
 }
 
-// Helper to get providers by feature
-export function getProvidersByFeature(feature: 'image' | 'video'): AIProvider[] {
-  return AI_PROVIDERS.filter(p => p.features[feature])
+export function getFreeProviders(): AIProvider[] {
+  return AI_PROVIDERS.filter(p => p.pricing.free)
 }
 
-// Free providers (no API key needed)
-export function getFreeProviders(): AIProvider[] {
-  return AI_PROVIDERS.filter(p => !p.requiresKey)
+export function getPopularProviders(): AIProvider[] {
+  return AI_PROVIDERS.filter(p => p.popular)
+}
+
+export function getNewProviders(): AIProvider[] {
+  return AI_PROVIDERS.filter(p => p.new)
 }
