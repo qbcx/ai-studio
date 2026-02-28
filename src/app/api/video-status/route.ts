@@ -65,7 +65,8 @@ export async function GET(request: Request) {
 
     // Handle different providers
     if (provider === 'zhipu') {
-      const response = await fetch(`https://open.bigmodel.cn/api/paas/v4/video/generations/${taskId}`, {
+      // Correct endpoint: /api/paas/v4/videos/generations (with 's' in videos)
+      const response = await fetch(`https://open.bigmodel.cn/api/paas/v4/videos/generations/${taskId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
@@ -75,8 +76,8 @@ export async function GET(request: Request) {
       if (!response.ok) {
         return NextResponse.json({
           success: false,
-          error: `API error: ${response.status}`
-        }, { status: response.status });
+          error: `Zhipu API error: ${response.status}`
+        }, { status: 400 });
       }
 
       const data = await response.json();

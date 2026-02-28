@@ -93,16 +93,17 @@ export async function POST(request: Request) {
     // Zhipu AI CogVideoX
     if (provider === 'zhipu') {
       try {
-        const response = await fetch('https://open.bigmodel.cn/api/paas/v4/video/generations', {
+        // Correct endpoint: /api/paas/v4/videos/generations (with 's' in videos)
+        const response = await fetch('https://open.bigmodel.cn/api/paas/v4/videos/generations', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiKey}`,
           },
           body: JSON.stringify({
-            model: 'cogvideox',
+            model: 'cogvideox-3',  // Updated model name
             prompt: cleanPrompt,
-            video_duration: validDuration,
+            quality: 'speed',  // Options: 'speed' or 'quality'
           }),
         });
 
