@@ -10,7 +10,7 @@ import {
   Moon,
   Sun,
   Clock,
-  Separator
+  Settings
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils'
 import { ImageGenerator } from '@/features/ai-generator/components/image-generator'
 import { VideoGenerator } from '@/features/ai-generator/components/video-generator'
 import { PageLoadingSkeleton } from '@/features/ai-generator/components/loading-skeletons'
+import { SettingsPanel } from '@/features/ai-generator/components/settings-panel'
 import { useAIGenerator } from '@/features/ai-generator/hooks'
 
 // Common components
@@ -47,8 +48,7 @@ export default function AIGeneratorPage() {
     updateVideo,
     clearImages,
     clearVideos,
-    deleteImage,
-    deleteVideo
+    updateApiKeys
   } = useAIGenerator()
 
   // Handle hydration
@@ -67,7 +67,11 @@ export default function AIGeneratorPage() {
       isDark ? 'bg-[#0a0a0f]' : 'bg-gradient-to-br from-slate-50 via-white to-slate-100'
     )}>
       {/* Header */}
-      <Header isDark={isDark} toggleTheme={toggleTheme} />
+      <Header
+        isDark={isDark}
+        toggleTheme={toggleTheme}
+        onSettingsChange={updateApiKeys}
+      />
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -147,9 +151,10 @@ export default function AIGeneratorPage() {
 interface HeaderProps {
   isDark: boolean
   toggleTheme: () => void
+  onSettingsChange?: (settings: Record<string, string>) => void
 }
 
-function Header({ isDark, toggleTheme }: HeaderProps) {
+function Header({ isDark, toggleTheme, onSettingsChange }: HeaderProps) {
   return (
     <header className="sticky top-0 z-50 backdrop-blur-xl border-b border-white/10 dark:border-white/5">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -173,11 +178,19 @@ function Header({ isDark, toggleTheme }: HeaderProps) {
             </div>
           </motion.div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
             <Badge variant="outline" className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium">
               <Sparkles className="w-3 h-3 text-amber-500" />
-              Free to Use
+              Free Options
             </Badge>
+
+            {/* Settings Button */}
+            <SettingsPanel
+              isDark={isDark}
+              onSettingsChange={onSettingsChange}
+            />
+
+            {/* Theme Toggle */}
             <Button
               variant="ghost"
               size="icon"
@@ -223,7 +236,7 @@ function FooterInfo({ isDark }: FooterInfoProps) {
         <UiSeparator orientation="vertical" className="h-4" />
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Sparkles className="w-4 h-4 text-amber-500" />
-          <span>100% Free</span>
+          <span>Multiple Providers</span>
         </div>
       </div>
     </motion.div>

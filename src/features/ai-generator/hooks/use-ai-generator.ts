@@ -6,6 +6,21 @@ import type { GeneratedImage, GeneratedVideo } from '../types'
 
 const generateId = () => Math.random().toString(36).substring(2, 15)
 
+// Storage key for API keys
+const API_KEYS_STORAGE = 'ai-studio-api-keys'
+
+// Provider selection storage
+const PROVIDER_STORAGE = 'ai-studio-providers'
+
+interface ApiKeys {
+  [key: string]: string
+}
+
+interface ProviderSettings {
+  image: string
+  video: string
+}
+
 export function useAIGenerator() {
   // Image state
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([])
@@ -21,12 +36,40 @@ export function useAIGenerator() {
   const [isDark, setIsDark] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
-  // Initialize theme from localStorage
+  // API Keys & Provider settings
+  const [apiKeys, setApiKeys] = useState<ApiKeys>({})
+  const [providers, setProviders] = useState<ProviderSettings>({
+    image: 'pollinations',
+    video: 'zhipu'
+  })
+
+  // Initialize from localStorage
   useEffect(() => {
+    // Theme
     const savedTheme = localStorage.getItem('theme')
     if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
       setIsDark(true)
       document.documentElement.classList.add('dark')
+    }
+
+    // API Keys
+    const savedKeys = localStorage.getItem(API_KEYS_STORAGE)
+    if (savedKeys) {
+      try {
+        setApiKeys(JSON.parse(savedKeys))
+      } catch (e) {
+        console.error('Failed to load API keys:', e)
+      }
+    }
+
+    // Provider settings
+    const savedProviders = localStorage.getItem(PROVIDER_STORAGE)
+    if (savedProviders) {
+      try {
+        setProviders(JSON.parse(savedProviders))
+      } catch (e) {
+        console.error('Failed to load providers:', e)
+      }
     }
   }, [])
 
@@ -45,6 +88,19 @@ export function useAIGenerator() {
     })
   }, [])
 
+  // Update API keys
+  const updateApiKeys = useCallback((keys: ApiKeys) => {
+    setApiKeys(keys)
+    localStorage.setItem(API_KEYS_STORAGE, JSON.stringify(keys))
+  }, [])
+
+  // Update provider selection
+  const updateProvider = useCallback((type: 'image' | 'video', provider: string) => {
+    const newProviders = { ...providers, [type]: provider }
+    setProviders(newProviders)
+    localStorage.setItem(PROVIDER_STORAGE, JSON.stringify(newProviders))
+  }, [providers])
+
   // Generate Image
   const generateImage = useCallback(async (prompt: string, size: string) => {
     setIsGeneratingImage(true)
@@ -54,12 +110,20 @@ export function useAIGenerator() {
       const response = await fetch('/api/generate-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, size })
+        body: JSON.stringify({
+          prompt,
+          size,
+          provider: providers.image,
+          apiKey: apiKeys[providers.image] || null
+        })
       })
 
       const data = await response.json()
 
       if (!response.ok || !data.success) {
+        if (data.requiresKey) {
+          throw new Error(`API key required for ${providers.image}. Go to Settings to add your key.`)
+        }
         throw new Error(data.error || 'Failed to generate image')
       }
 
@@ -72,14 +136,14 @@ export function useAIGenerator() {
       }
 
       setGeneratedImages(prev => [newImage, ...prev])
-      toast.success('Image generated successfully!', { id: toastId })
+      toast.success(data.fallback ? 'Image generated (using fallback)' : 'Image generated!', { id: toastId })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to generate image'
       toast.error(message, { id: toastId })
     } finally {
       setIsGeneratingImage(false)
     }
-  }, [])
+  }, [providers.image, apiKeys])
 
   // Generate Video
   const generateVideo = useCallback(async (
@@ -99,13 +163,17 @@ export function useAIGenerator() {
           prompt,
           quality,
           duration,
-          fps: 30
+          provider: providers.video,
+          apiKey: apiKeys[providers.video] || null
         })
       })
 
       const data = await response.json()
 
       if (!response.ok || !data.success) {
+        if (data.requiresKey) {
+          throw new Error('Video generation requires an API key. Go to Settings to add your key.')
+        }
         throw new Error(data.error || 'Failed to create video task')
       }
 
@@ -126,7 +194,7 @@ export function useAIGenerator() {
       toast.success('Video task created! Processing...', { id: toastId })
 
       // Start polling
-      startPolling(taskId, newVideo.id)
+      pollVideoStatus(taskId, newVideo.id)
 
       return { taskId }
     } catch (error) {
@@ -135,23 +203,27 @@ export function useAIGenerator() {
       setIsGeneratingVideo(false)
       return null
     }
-  }, [])
+  }, [providers.video, apiKeys])
 
   // Poll video status
-  const startPolling = useCallback((taskId: string, videoId: string) => {
+  const pollVideoStatus = useCallback(async (taskId: string, videoId: string) => {
     const maxPolls = 60
     const pollInterval = 5000
     let pollCount = 0
 
     const poll = async () => {
       try {
-        const response = await fetch(`/api/video-status?taskId=${taskId}`)
+        const response = await fetch(`/api/video-status?taskId=${taskId}&provider=${providers.video}`, {
+          headers: {
+            'X-API-Key': apiKeys[providers.video] || ''
+          }
+        })
         const data = await response.json()
 
         pollCount++
         setPollingProgress(Math.min((pollCount / maxPolls) * 100, 95))
 
-        if (data.success && data.data.status === 'SUCCESS' && data.data.videoUrl) {
+        if (data.success && data.data?.status === 'SUCCESS' && data.data?.videoUrl) {
           setGeneratedVideos(prev =>
             prev.map(v =>
               v.taskId === taskId
@@ -166,7 +238,7 @@ export function useAIGenerator() {
           return
         }
 
-        if (data.success && data.data.status === 'FAIL') {
+        if (data.success && data.data?.status === 'FAIL') {
           setGeneratedVideos(prev =>
             prev.map(v =>
               v.taskId === taskId
@@ -196,19 +268,22 @@ export function useAIGenerator() {
     }
 
     poll()
-  }, [])
+  }, [providers.video, apiKeys])
 
   // Check video status manually
   const checkVideoStatus = useCallback(async (taskId: string) => {
     try {
-      const response = await fetch(`/api/video-status?taskId=${taskId}`)
-      const data = await response.json()
-      return data
+      const response = await fetch(`/api/video-status?taskId=${taskId}&provider=${providers.video}`, {
+        headers: {
+          'X-API-Key': apiKeys[providers.video] || ''
+        }
+      })
+      return await response.json()
     } catch (error) {
       console.error('Status check error:', error)
       return null
     }
-  }, [])
+  }, [providers.video, apiKeys])
 
   // Update video
   const updateVideo = useCallback((taskId: string, updates: Partial<GeneratedVideo>) => {
@@ -249,6 +324,8 @@ export function useAIGenerator() {
     pollingProgress,
     pollingTaskId,
     copiedId,
+    apiKeys,
+    providers,
 
     // Actions
     toggleTheme,
@@ -260,6 +337,8 @@ export function useAIGenerator() {
     clearVideos,
     deleteImage,
     deleteVideo,
-    setCopiedId
+    setCopiedId,
+    updateApiKeys,
+    updateProvider
   }
 }
