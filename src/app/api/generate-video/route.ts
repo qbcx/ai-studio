@@ -2,60 +2,89 @@ export const runtime = 'edge';
 
 import { NextResponse } from 'next/server';
 
-// Supported video providers
-const VIDEO_PROVIDERS = {
-  zhipu: {
-    name: 'Zhipu AI (CogVideoX)',
-    endpoint: 'https://open.bigmodel.cn/api/paas/v4/video/generations',
-    statusEndpoint: (taskId: string) => `https://open.bigmodel.cn/api/paas/v4/video/generations/${taskId}`,
-    requiresKey: true
-  },
-  stability: {
-    name: 'Stability AI',
-    endpoint: 'https://api.stability.ai/v2beta/video/generate',
-    requiresKey: true
-  },
-  replicate: {
-    name: 'Replicate',
-    endpoint: 'https://api.replicate.com/v1/predictions',
-    requiresKey: true
-  }
-};
+// Security: Rate limiting
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+const RATE_LIMIT = 5; // Lower limit for video (expensive)
+const RATE_WINDOW = 60000;
 
-type VideoProviderKey = keyof typeof VIDEO_PROVIDERS;
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+
+  if (!entry || now > entry.resetTime) {
+    rateLimitMap.set(ip, { count: 1, resetTime: now + RATE_WINDOW });
+    return true;
+  }
+
+  if (entry.count >= RATE_LIMIT) {
+    return false;
+  }
+
+  entry.count++;
+  return true;
+}
+
+// Security: Sanitize prompt
+function sanitizePrompt(prompt: string): string {
+  return prompt
+    .replace(/[<>]/g, '')
+    .replace(/[\x00-\x1F]/g, '')
+    .slice(0, 1000)
+    .trim();
+}
+
+// Security: Validate API key
+function validateApiKey(provider: string, key: string): boolean {
+  if (!key || key.length < 10) return false;
+  return true;
+}
 
 // POST /api/generate-video
 export async function POST(request: Request) {
   try {
+    // Rate limiting
+    const clientIp = request.headers.get('x-forwarded-for') ||
+                     request.headers.get('x-real-ip') ||
+                     'unknown';
+
+    if (!checkRateLimit(clientIp)) {
+      return NextResponse.json({
+        success: false,
+        error: 'Too many requests. Please wait a minute.'
+      }, { status: 429 });
+    }
+
     const body = await request.json();
     const { prompt, quality = 'speed', duration = 5, provider = 'zhipu', apiKey } = body;
 
-    if (!prompt || typeof prompt !== 'string') {
+    // Validate prompt
+    if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
       return NextResponse.json({
         success: false,
         error: 'Prompt is required'
       }, { status: 400 });
     }
 
-    // Check for API key
-    if (!apiKey) {
+    const cleanPrompt = sanitizePrompt(prompt);
+
+    // Validate API key
+    if (!apiKey || !validateApiKey(provider, apiKey)) {
       return NextResponse.json({
         success: false,
-        error: 'Video generation requires an API key. Add one in Settings.',
-        requiresKey: true,
-        providers: Object.entries(VIDEO_PROVIDERS).map(([id, p]) => ({
-          id,
-          name: p.name
-        }))
+        error: 'Valid API key required',
+        requiresKey: true
       }, { status: 401 });
     }
 
-    const providerConfig = VIDEO_PROVIDERS[provider as VideoProviderKey] || VIDEO_PROVIDERS.zhipu;
+    // Validate duration (1-10 seconds)
+    const validDuration = Math.min(Math.max(Number(duration) || 5, 1), 10);
 
-    try {
-      // Zhipu AI
-      if (provider === 'zhipu') {
-        const response = await fetch(providerConfig.endpoint, {
+    console.log('[VideoGen] Provider:', provider);
+
+    // Zhipu AI CogVideoX
+    if (provider === 'zhipu') {
+      try {
+        const response = await fetch('https://open.bigmodel.cn/api/paas/v4/video/generations', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -63,17 +92,25 @@ export async function POST(request: Request) {
           },
           body: JSON.stringify({
             model: 'cogvideox',
-            prompt: prompt.trim(),
-            video_duration: duration,
+            prompt: cleanPrompt,
+            video_duration: validDuration,
           }),
         });
 
         if (!response.ok) {
           const errorText = await response.text();
+          let errorMessage = `Zhipu AI error: ${response.status}`;
+
+          try {
+            const errorJson = JSON.parse(errorText);
+            errorMessage = errorJson.error?.message || errorJson.message || errorMessage;
+          } catch {
+            if (errorText) errorMessage = errorText.slice(0, 200);
+          }
+
           return NextResponse.json({
             success: false,
-            error: `Zhipu AI error: ${response.status}. Check your API key.`,
-            details: errorText
+            error: errorMessage
           }, { status: response.status });
         }
 
@@ -92,57 +129,34 @@ export async function POST(request: Request) {
           data: { taskId },
           timestamp: new Date().toISOString()
         });
-      }
 
-      // Stability AI
-      if (provider === 'stability') {
-        const response = await fetch(providerConfig.endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            text_prompts: [{ text: prompt }],
-            cfg_scale: 7,
-            motion_bucket_id: 127,
-          }),
-        });
-
-        if (!response.ok) {
-          return NextResponse.json({
-            success: false,
-            error: `Stability AI error: ${response.status}`
-          }, { status: response.status });
-        }
-
-        const data = await response.json();
-        const taskId = data.id;
-
+      } catch (fetchError) {
+        console.error('[VideoGen] Zhipu fetch error:', fetchError);
         return NextResponse.json({
-          success: true,
-          data: { taskId },
-          timestamp: new Date().toISOString()
-        });
+          success: false,
+          error: 'Failed to connect to Zhipu AI. Check your API key.'
+        }, { status: 502 });
       }
-
-      // Default: provider not fully implemented
-      return NextResponse.json({
-        success: false,
-        error: `${providerConfig.name} integration coming soon. Use Zhipu AI.`
-      }, { status: 400 });
-
-    } catch (fetchError) {
-      return NextResponse.json({
-        success: false,
-        error: 'Failed to connect to video API. Check your API key and try again.'
-      }, { status: 502 });
     }
 
-  } catch (error) {
+    // Runway (placeholder - requires different auth)
+    if (provider === 'runway') {
+      return NextResponse.json({
+        success: false,
+        error: 'Runway integration requires setup. Please use Zhipu AI for now.'
+      }, { status: 400 });
+    }
+
     return NextResponse.json({
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: `Unknown provider: ${provider}`
+    }, { status: 400 });
+
+  } catch (error) {
+    console.error('[VideoGen] Error:', error);
+    return NextResponse.json({
+      success: false,
+      error: 'Something went wrong. Please try again.'
     }, { status: 500 });
   }
 }

@@ -1,0 +1,46 @@
+MIT License
+
+Copyright (c) 2026 AI Studio
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## Third-Party APIs Notice
+
+This application integrates with third-party AI services. Users must:
+
+1. **Provide their own API keys** - This application does not provide API keys
+2. **Comply with each provider's Terms of Service**:
+   - OpenAI: https://openai.com/policies
+   - Zhipu AI: https://open.bigmodel.cn
+   - Stability AI: https://stability.ai/terms-of-use
+   - Runway: https://runwayml.com/terms
+
+3. **Usage costs** - Users are responsible for any costs incurred through their API usage
+
+## Disclaimer
+
+This software is provided for educational and personal use. The developers are not responsible for:
+- Content generated using third-party AI services
+- API costs incurred by users
+- Any misuse of the software
+- Violations of third-party terms of service
+
+Users are solely responsible for ensuring their use of this software complies with all applicable laws and terms of service.

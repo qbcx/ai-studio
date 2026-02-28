@@ -2,40 +2,57 @@ export const runtime = 'edge';
 
 import { NextResponse } from 'next/server';
 
+// Security: Rate limiting for test endpoint
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+const RATE_LIMIT = 5;
+const RATE_WINDOW = 60000;
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+
+  if (!entry || now > entry.resetTime) {
+    rateLimitMap.set(ip, { count: 1, resetTime: now + RATE_WINDOW });
+    return true;
+  }
+
+  if (entry.count >= RATE_LIMIT) {
+    return false;
+  }
+
+  entry.count++;
+  return true;
+}
+
 // POST /api/test-key
-// Test if an API key is valid
 export async function POST(request: Request) {
   try {
+    // Rate limiting
+    const clientIp = request.headers.get('x-forwarded-for') ||
+                     request.headers.get('x-real-ip') ||
+                     'unknown';
+
+    if (!checkRateLimit(clientIp)) {
+      return NextResponse.json({
+        success: false,
+        error: 'Too many test attempts. Please wait a minute.'
+      }, { status: 429 });
+    }
+
     const body = await request.json();
     const { provider, apiKey } = body;
 
-    if (!apiKey) {
+    // Validate API key format
+    if (!apiKey || typeof apiKey !== 'string' || apiKey.length < 10) {
       return NextResponse.json({
         success: false,
-        error: 'No API key provided'
+        error: 'Invalid API key format'
       }, { status: 400 });
     }
 
-    // Test based on provider
+    // Never log or expose the API key
+
     switch (provider) {
-      case 'huggingface': {
-        // Test HF token by fetching user info
-        const res = await fetch('https://huggingface.co/api/whoami-v2', {
-          headers: {
-            'Authorization': `Bearer ${apiKey}`
-          }
-        });
-
-        if (res.ok) {
-          return NextResponse.json({ success: true });
-        } else {
-          return NextResponse.json({
-            success: false,
-            error: 'Invalid Hugging Face token'
-          }, { status: 401 });
-        }
-      }
-
       case 'zhipu': {
         const res = await fetch('https://open.bigmodel.cn/api/paas/v4/models', {
           headers: {
@@ -89,15 +106,14 @@ export async function POST(request: Request) {
       }
 
       default:
-        // For unknown providers, just check if key exists
         return NextResponse.json({
-          success: true,
-          note: 'Test not implemented for this provider'
-        });
+          success: false,
+          error: 'Unknown provider'
+        }, { status: 400 });
     }
 
   } catch (error) {
-    console.error('API key test error:', error);
+    console.error('[TestKey] Error:', error);
     return NextResponse.json({
       success: false,
       error: 'Failed to test API key. Check your connection.'

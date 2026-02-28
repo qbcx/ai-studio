@@ -2,13 +2,73 @@ export const runtime = 'edge';
 
 import { NextResponse } from 'next/server';
 
+// Security: Rate limiting map (in-memory, resets on deploy)
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+const RATE_LIMIT = 10; // requests per minute
+const RATE_WINDOW = 60000; // 1 minute
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+
+  if (!entry || now > entry.resetTime) {
+    rateLimitMap.set(ip, { count: 1, resetTime: now + RATE_WINDOW });
+    return true;
+  }
+
+  if (entry.count >= RATE_LIMIT) {
+    return false;
+  }
+
+  entry.count++;
+  return true;
+}
+
+// Security: Sanitize prompt to prevent injection
+function sanitizePrompt(prompt: string): string {
+  // Remove potentially dangerous characters and limit length
+  return prompt
+    .replace(/[<>]/g, '')
+    .replace(/[\x00-\x1F]/g, '')
+    .slice(0, 2000)
+    .trim();
+}
+
+// Security: Validate API key format
+function validateApiKey(provider: string, key: string): boolean {
+  if (!key || key.length < 10) return false;
+
+  switch (provider) {
+    case 'openai':
+      return key.startsWith('sk-');
+    case 'zhipu':
+      return key.length >= 20;
+    case 'stability':
+      return key.startsWith('sk-') || key.length >= 20;
+    default:
+      return key.length >= 10;
+  }
+}
+
 // POST /api/generate-image
-// Generates an image using various AI providers
 export async function POST(request: Request) {
   try {
+    // Security: Get client IP for rate limiting
+    const clientIp = request.headers.get('x-forwarded-for') ||
+                     request.headers.get('x-real-ip') ||
+                     'unknown';
+
+    if (!checkRateLimit(clientIp)) {
+      return NextResponse.json({
+        success: false,
+        error: 'Too many requests. Please wait a minute.'
+      }, { status: 429 });
+    }
+
     const body = await request.json();
     const { prompt, size = '1024x1024', provider = 'zhipu', apiKey, removeWatermark } = body;
 
+    // Validate prompt
     if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
       return NextResponse.json({
         success: false,
@@ -16,24 +76,27 @@ export async function POST(request: Request) {
       }, { status: 400 });
     }
 
-    const [width, height] = size.split('x').map(Number);
-    const cleanPrompt = prompt.trim();
+    const cleanPrompt = sanitizePrompt(prompt);
+
+    // Validate size
+    const validSizes = ['1024x1024', '1024x1792', '1792x1024'];
+    const validSize = validSizes.includes(size) ? size : '1024x1024';
+    const [width, height] = validSize.split('x').map(Number);
 
     // Handle different providers
     switch (provider) {
       case 'zhipu': {
-        if (!apiKey) {
+        if (!apiKey || !validateApiKey('zhipu', apiKey)) {
           return NextResponse.json({
             success: false,
-            error: 'Zhipu AI API key required. Get it from https://open.bigmodel.cn',
+            error: 'Valid Zhipu AI API key required. Get it from https://open.bigmodel.cn',
             requiresKey: true
           }, { status: 401 });
         }
 
-        console.log('[ImageGen] Zhipu AI request for:', cleanPrompt);
+        console.log('[ImageGen] Zhipu AI request');
 
         try {
-          // Zhipu CogView-4 API
           const response = await fetch('https://open.bigmodel.cn/api/paas/v4/images/generations', {
             method: 'POST',
             headers: {
@@ -43,9 +106,7 @@ export async function POST(request: Request) {
             body: JSON.stringify({
               model: 'cogview-4',
               prompt: cleanPrompt,
-              size: size,
-              // Add watermark removal if supported
-              ...(removeWatermark && { nologo: true })
+              size: validSize
             })
           });
 
@@ -61,7 +122,6 @@ export async function POST(request: Request) {
           const imageUrl = data.data?.[0]?.url || data.data?.[0]?.image_url || data.data?.url;
 
           if (!imageUrl) {
-            console.error('[ImageGen] Zhipu response:', data);
             return NextResponse.json({
               success: false,
               error: 'No image URL in response'
@@ -73,7 +133,7 @@ export async function POST(request: Request) {
             data: {
               image: imageUrl,
               prompt: cleanPrompt,
-              size: size
+              size: validSize
             },
             timestamp: new Date().toISOString()
           });
@@ -88,15 +148,15 @@ export async function POST(request: Request) {
       }
 
       case 'openai': {
-        if (!apiKey) {
+        if (!apiKey || !validateApiKey('openai', apiKey)) {
           return NextResponse.json({
             success: false,
-            error: 'OpenAI API key required. Get it from https://platform.openai.com/api-keys',
+            error: 'Valid OpenAI API key required. Get it from https://platform.openai.com/api-keys',
             requiresKey: true
           }, { status: 401 });
         }
 
-        console.log('[ImageGen] OpenAI request for:', cleanPrompt);
+        console.log('[ImageGen] OpenAI request');
 
         try {
           const response = await fetch('https://api.openai.com/v1/images/generations', {
@@ -109,7 +169,7 @@ export async function POST(request: Request) {
               model: 'dall-e-3',
               prompt: cleanPrompt,
               n: 1,
-              size: size as '1024x1024' | '1792x1024' | '1024x1792',
+              size: validSize as '1024x1024' | '1792x1024' | '1024x1792',
               quality: 'standard',
               response_format: 'url'
             })
@@ -129,11 +189,9 @@ export async function POST(request: Request) {
             data: {
               image: data.data[0].url,
               prompt: cleanPrompt,
-              size: size
+              size: validSize
             },
-            timestamp: new Date().toISOString(),
-            // Note: DALL-E 3 includes watermarks by default
-            watermarkNote: removeWatermark ? 'DALL-E 3 images include embedded watermarks that cannot be removed via API' : undefined
+            timestamp: new Date().toISOString()
           });
 
         } catch (fetchError) {
@@ -146,58 +204,76 @@ export async function POST(request: Request) {
       }
 
       case 'stability': {
-        if (!apiKey) {
+        if (!apiKey || !validateApiKey('stability', apiKey)) {
           return NextResponse.json({
             success: false,
-            error: 'Stability AI API key required. Get it from https://platform.stability.ai',
+            error: 'Valid Stability AI API key required. Get it from https://platform.stability.ai',
             requiresKey: true
           }, { status: 401 });
         }
 
-        console.log('[ImageGen] Stability AI request for:', cleanPrompt);
+        console.log('[ImageGen] Stability AI request');
 
         try {
-          const formData = new FormData();
-          formData.append('text_prompts[0][text]', cleanPrompt);
-          formData.append('cfg_scale', '7');
-          formData.append('height', String(Math.min(height, 1024)));
-          formData.append('width', String(Math.min(width, 1024)));
-          formData.append('steps', '30');
-          formData.append('samples', '1');
-
-          const response = await fetch('https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image', {
+          // Use Stability AI v2beta API with JSON body
+          const response = await fetch('https://api.stability.ai/v2beta/stable-image/generate/core', {
             method: 'POST',
             headers: {
+              'Content-Type': 'application/json',
               'Authorization': `Bearer ${apiKey}`,
               'Accept': 'application/json'
             },
-            body: formData
+            body: JSON.stringify({
+              prompt: cleanPrompt,
+              output_format: 'png',
+              aspect_ratio: width > height ? '16:9' : height > width ? '9:16' : '1:1',
+              mode: 'text-to-image'
+            })
           });
 
           if (!response.ok) {
-            const error = await response.json().catch(() => ({}));
+            const errorText = await response.text();
+            let errorMessage = `Stability AI error: ${response.status}`;
+
+            try {
+              const errorJson = JSON.parse(errorText);
+              errorMessage = errorJson.message || errorJson.errors?.[0] || errorMessage;
+            } catch {
+              if (errorText) errorMessage = errorText.slice(0, 200);
+            }
+
             return NextResponse.json({
               success: false,
-              error: error.message || `Stability AI error: ${response.status}`
+              error: errorMessage
             }, { status: response.status });
           }
 
           const data = await response.json();
-          const imageData = data.artifacts?.[0]?.base64;
+
+          // Handle different response formats
+          let imageData = data.image || data.artifacts?.[0]?.base64 || data.data?.[0]?.base64;
 
           if (!imageData) {
+            console.error('[ImageGen] Stability response:', JSON.stringify(data).slice(0, 500));
             return NextResponse.json({
               success: false,
               error: 'No image data in response'
             }, { status: 500 });
           }
 
+          // If image is a URL, return as-is; if base64, add prefix
+          const imageUrl = imageData.startsWith('http')
+            ? imageData
+            : imageData.startsWith('data:')
+              ? imageData
+              : `data:image/png;base64,${imageData}`;
+
           return NextResponse.json({
             success: true,
             data: {
-              image: `data:image/png;base64,${imageData}`,
+              image: imageUrl,
               prompt: cleanPrompt,
-              size: size
+              size: validSize
             },
             timestamp: new Date().toISOString()
           });

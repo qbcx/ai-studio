@@ -1,5 +1,6 @@
-// AI Provider Configuration - 2026
+// AI Provider Configuration
 // Supported providers with costs, features, and dashboard links
+// Note: Users must provide their own API keys
 
 export interface AIProvider {
   id: string
