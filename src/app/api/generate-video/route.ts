@@ -1,43 +1,20 @@
 export const runtime = 'edge';
 
 import { NextResponse } from 'next/server';
-import { generateVideoSchema } from '@/features/ai-generator/schemas';
-import {
-  successResponse,
-  errorResponse,
-  validationErrorResponse,
-  type ApiResponse
-} from '@/lib/api-response';
-import { logError, debugLog } from '@/lib/errors';
-import type { VideoGenerationResponse } from '@/features/ai-generator/types';
 
 // POST /api/generate-video
-// Creates a video generation task from a text prompt
-// NOTE: Video generation requires an API key - no free tier available
-export async function POST(request: Request): Promise<NextResponse<ApiResponse<VideoGenerationResponse>>> {
+export async function POST(request: Request) {
   const requestId = crypto.randomUUID().slice(0, 8);
 
   try {
-    // Parse and validate request body
-    let body: unknown;
-    try {
-      body = await request.json();
-      debugLog('VideoGen', `[${requestId}] Request received`, body);
-    } catch {
-      return validationErrorResponse('Invalid JSON in request body');
-    }
+    const body = await request.json();
+    const { prompt, quality = 'speed', duration = 5 } = body;
 
-    // Validate with Zod schema
-    const parseResult = generateVideoSchema.safeParse(body);
-    if (!parseResult.success) {
-      const errorMessage = parseResult.error.errors.map(e => e.message).join(', ');
-      debugLog('VideoGen', `[${requestId}] Validation failed`, parseResult.error.errors);
-      return validationErrorResponse(errorMessage, {
-        fields: parseResult.error.errors.map(e => ({
-          field: e.path.join('.'),
-          message: e.message
-        }))
-      });
+    if (!prompt || typeof prompt !== 'string') {
+      return NextResponse.json({
+        success: false,
+        error: 'Prompt is required'
+      }, { status: 400 });
     }
 
     // Check for API key
@@ -45,20 +22,14 @@ export async function POST(request: Request): Promise<NextResponse<ApiResponse<V
     if (!apiKey) {
       return NextResponse.json({
         success: false,
-        error: 'Video generation requires an API key. Get one for free at: https://bigmodel.cn (Zhipu AI) or add ZAI_API_KEY to your environment variables.',
+        error: 'Video generation requires ZAI_API_KEY. Get one at: https://open.bigmodel.cn',
         code: 'API_KEY_REQUIRED'
       }, { status: 401 });
     }
 
-    const { prompt, quality, duration } = parseResult.data;
+    console.log(`[${requestId}] Video generation started`, { prompt: prompt.slice(0, 50) });
 
-    debugLog('VideoGen', `[${requestId}] Starting generation`, {
-      prompt: prompt.slice(0, 50),
-      quality,
-      duration
-    });
-
-    // Zhipu AI / BigModel API for video generation
+    // Zhipu AI CogVideoX API
     const response = await fetch('https://open.bigmodel.cn/api/paas/v4/video/generations', {
       method: 'POST',
       headers: {
@@ -67,41 +38,46 @@ export async function POST(request: Request): Promise<NextResponse<ApiResponse<V
       },
       body: JSON.stringify({
         model: 'cogvideox',
-        prompt,
-        quality,
-        duration,
+        prompt: prompt.trim(),
+        video_duration: duration,
       }),
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
+      const errorText = await response.text();
+      console.error(`[${requestId}] API error:`, errorText);
       return NextResponse.json({
         success: false,
-        error: errorData.error?.message || `API error: ${response.status}`,
-        code: 'API_ERROR'
+        error: `API error: ${response.status}`,
+        details: errorText
       }, { status: response.status });
     }
 
     const data = await response.json();
+    console.log(`[${requestId}] API response:`, data);
+
     const taskId = data.id || data.task_id || data.data?.id;
 
     if (!taskId) {
       return NextResponse.json({
         success: false,
-        error: 'No task ID returned from AI service',
-        code: 'API_ERROR'
+        error: 'No task ID returned'
       }, { status: 500 });
     }
 
-    debugLog('VideoGen', `[${requestId}] Task created`, { taskId });
-
-    return successResponse({
-      taskId,
-      timestamp: new Date().toISOString()
+    return NextResponse.json({
+      success: true,
+      data: {
+        taskId,
+        timestamp: new Date().toISOString()
+      }
     });
 
   } catch (error) {
-    logError(`VideoGen [${requestId}]`, error);
-    return errorResponse(error, 'Failed to create video task');
+    console.error(`[${requestId}] Error:`, error);
+    return NextResponse.json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 });
   }
 }

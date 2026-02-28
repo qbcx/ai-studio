@@ -1,48 +1,33 @@
 export const runtime = 'edge';
 
 import { NextResponse } from 'next/server';
-import { videoStatusSchema } from '@/features/ai-generator/schemas';
-import {
-  successResponse,
-  errorResponse,
-  validationErrorResponse,
-  type ApiResponse
-} from '@/lib/api-response';
-import { logError, debugLog, createApiError } from '@/lib/errors';
-import type { VideoStatusResponse } from '@/features/ai-generator/types';
 
 // GET /api/video-status?taskId=xxx
-// Checks the status of a video generation task
-export async function GET(request: Request): Promise<NextResponse<ApiResponse<VideoStatusResponse>>> {
+export async function GET(request: Request) {
   const requestId = crypto.randomUUID().slice(0, 8);
 
   try {
     const { searchParams } = new URL(request.url);
+    const taskId = searchParams.get('taskId');
 
-    // Validate query parameters
-    const parseResult = videoStatusSchema.safeParse({
-      taskId: searchParams.get('taskId')
-    });
-
-    if (!parseResult.success) {
-      return validationErrorResponse('taskId parameter is required');
+    if (!taskId) {
+      return NextResponse.json({
+        success: false,
+        error: 'taskId is required'
+      }, { status: 400 });
     }
-
-    const { taskId } = parseResult.data;
 
     // Check for API key
     const apiKey = process.env.ZAI_API_KEY;
     if (!apiKey) {
       return NextResponse.json({
         success: false,
-        error: 'Video generation requires an API key.',
-        code: 'API_KEY_REQUIRED'
+        error: 'API key required'
       }, { status: 401 });
     }
 
-    debugLog('VideoStatus', `[${requestId}] Checking status for task`, { taskId });
+    console.log(`[${requestId}] Checking video status:`, taskId);
 
-    // Zhipu AI / BigModel API to check video status
     const response = await fetch(`https://open.bigmodel.cn/api/paas/v4/video/generations/${taskId}`, {
       method: 'GET',
       headers: {
@@ -51,48 +36,51 @@ export async function GET(request: Request): Promise<NextResponse<ApiResponse<Vi
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw createApiError(errorData.error?.message || `API error: ${response.status}`, {
-        status: response.status,
-        error: errorData
-      });
+      const errorText = await response.text();
+      console.error(`[${requestId}] Status check error:`, errorText);
+      return NextResponse.json({
+        success: false,
+        error: `API error: ${response.status}`
+      }, { status: response.status });
     }
 
     const data = await response.json();
-    const status = data.status || data.data?.status || 'PROCESSING';
+    console.log(`[${requestId}] Status response:`, data);
 
-    debugLog('VideoStatus', `[${requestId}] Status response`, { status, data });
+    const status = data.status || data.task_status || 'PROCESSING';
 
-    // Handle different statuses
     if (status === 'SUCCESS' || status === 'completed' || status === 'succeeded') {
-      const videoUrl = data.video || data.video_url || data.data?.video || data.data?.video_url;
+      const videoUrl = data.video_url || data.video || data.data?.video_url;
+      return NextResponse.json({
+        success: true,
+        data: {
+          status: 'SUCCESS',
+          videoUrl
+        }
+      });
+    }
 
-      if (!videoUrl) {
-        throw createApiError('Video completed but no URL returned', {
-          taskId,
-          status
-        });
+    if (status === 'FAIL' || status === 'failed') {
+      return NextResponse.json({
+        success: true,
+        data: {
+          status: 'FAIL'
+        }
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        status: 'PROCESSING'
       }
-
-      return successResponse({
-        status: 'SUCCESS',
-        videoUrl
-      });
-    }
-
-    if (status === 'FAIL' || status === 'failed' || status === 'error') {
-      return successResponse({
-        status: 'FAIL'
-      });
-    }
-
-    // Still processing
-    return successResponse({
-      status: 'PROCESSING'
     });
 
   } catch (error) {
-    logError('VideoStatus', error);
-    return errorResponse(error, 'Failed to check video status');
+    console.error(`[${requestId}] Error:`, error);
+    return NextResponse.json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 });
   }
 }
