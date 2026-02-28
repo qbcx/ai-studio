@@ -326,17 +326,28 @@ export async function POST(request: Request) {
           });
 
           if (!response.ok) {
-            const error = await response.json().catch(() => ({}));
+            let errorMsg = `Replicate error: ${response.status}`;
+            try {
+              const error = await response.json();
+              errorMsg = error.detail || error.error?.message || errorMsg;
+            } catch {}
+
+            // Return 400 instead of passing through error codes
             return NextResponse.json({
               success: false,
-              error: error.detail || error.error?.message || `Replicate error: ${response.status}`
-            }, { status: response.status });
+              error: response.status === 402
+                ? 'Replicate: Insufficient credits. Add billing at replicate.com/account/billing'
+                : response.status === 401
+                  ? 'Invalid Replicate API key'
+                  : response.status === 404
+                    ? 'Replicate model not found. Try again later.'
+                    : errorMsg
+            }, { status: 400 });
           }
 
           const data = await response.json();
 
           // Replicate returns a prediction that we need to poll
-          // For now, return the prediction ID and let client poll
           return NextResponse.json({
             success: true,
             data: {
@@ -354,7 +365,7 @@ export async function POST(request: Request) {
           console.error('[ImageGen] Replicate fetch error:', fetchError);
           return NextResponse.json({
             success: false,
-            error: 'Failed to connect to Replicate. Check your API key.'
+            error: 'Failed to connect to Replicate. Check your connection.'
           }, { status: 502 });
         }
       }
@@ -387,11 +398,22 @@ export async function POST(request: Request) {
           });
 
           if (!response.ok) {
-            const error = await response.json().catch(() => ({}));
+            let errorMsg = `fal.ai error: ${response.status}`;
+            try {
+              const error = await response.json();
+              errorMsg = error.detail || error.error || errorMsg;
+            } catch {}
+
             return NextResponse.json({
               success: false,
-              error: error.detail || error.error || `fal.ai error: ${response.status}`
-            }, { status: response.status });
+              error: response.status === 402
+                ? 'fal.ai: Insufficient credits'
+                : response.status === 401
+                  ? 'Invalid fal.ai API key'
+                  : response.status === 404
+                    ? 'fal.ai endpoint unavailable. Try again later.'
+                    : errorMsg
+            }, { status: 400 });
           }
 
           const data = await response.json();

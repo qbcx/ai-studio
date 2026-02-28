@@ -77,14 +77,30 @@ async function apiFetch<T>(
       },
     })
 
-    const data = await response.json()
+    let data
+    try {
+      data = await response.json()
+    } catch {
+      throw new ApiError(`Server error: ${response.status}`, response.status)
+    }
 
     if (!response.ok || !data.success) {
-      throw new ApiError(
-        data.error || `Request failed with status ${response.status}`,
-        response.status,
-        data.requiresKey
-      )
+      // Provide user-friendly error messages
+      let errorMessage = data.error || `Request failed (${response.status})`
+
+      if (response.status === 402) {
+        errorMessage = 'Insufficient credits. Please add billing to your account.'
+      } else if (response.status === 401) {
+        errorMessage = 'Invalid API key. Please check your key and try again.'
+      } else if (response.status === 404) {
+        errorMessage = 'API endpoint not found. The service may be unavailable.'
+      } else if (response.status === 429) {
+        errorMessage = 'Rate limited. Please wait a moment and try again.'
+      } else if (response.status >= 500) {
+        errorMessage = 'Server error. Please try again later.'
+      }
+
+      throw new ApiError(errorMessage, response.status, data.requiresKey)
     }
 
     return data as ApiResponse<T>
@@ -93,7 +109,7 @@ async function apiFetch<T>(
       throw error
     }
     throw new ApiError(
-      error instanceof Error ? error.message : 'Network error',
+      error instanceof Error ? error.message : 'Network error. Please check your connection.',
       0
     )
   }

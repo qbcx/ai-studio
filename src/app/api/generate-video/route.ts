@@ -221,11 +221,23 @@ export async function POST(request: Request) {
         });
 
         if (!response.ok) {
-          const error = await response.json().catch(() => ({}));
+          let errorMsg = `fal.ai error: ${response.status}`;
+          try {
+            const error = await response.json();
+            errorMsg = error.detail || error.error || errorMsg;
+          } catch {}
+
+          // Return 400 instead of passing through 404/402
           return NextResponse.json({
             success: false,
-            error: error.detail || `fal.ai error: ${response.status}`
-          }, { status: response.status });
+            error: response.status === 404
+              ? 'fal.ai video endpoint unavailable. Try again later.'
+              : response.status === 401
+                ? 'Invalid fal.ai API key'
+                : response.status === 402
+                  ? 'fal.ai: Insufficient credits'
+                  : errorMsg
+          }, { status: 400 });
         }
 
         const data = await response.json();
@@ -239,7 +251,7 @@ export async function POST(request: Request) {
         console.error('[VideoGen] fal.ai fetch error:', fetchError);
         return NextResponse.json({
           success: false,
-          error: 'Failed to connect to fal.ai. Check your API key.'
+          error: 'Failed to connect to fal.ai. Check your connection.'
         }, { status: 502 });
       }
     }
@@ -270,11 +282,20 @@ export async function POST(request: Request) {
         });
 
         if (!response.ok) {
-          const error = await response.json().catch(() => ({}));
+          let errorMsg = `Kling error: ${response.status}`;
+          try {
+            const error = await response.json();
+            errorMsg = error.message || error.error?.message || errorMsg;
+          } catch {}
+
           return NextResponse.json({
             success: false,
-            error: error.message || `Kling error: ${response.status}`
-          }, { status: response.status });
+            error: response.status === 404
+              ? 'Kling AI endpoint unavailable. Try again later.'
+              : response.status === 401
+                ? 'Invalid Kling AI API key'
+                : errorMsg
+          }, { status: 400 });
         }
 
         const data = await response.json();
@@ -288,7 +309,7 @@ export async function POST(request: Request) {
         console.error('[VideoGen] Kling fetch error:', fetchError);
         return NextResponse.json({
           success: false,
-          error: 'Failed to connect to Kling AI. Check your API key.'
+          error: 'Failed to connect to Kling AI. Check your connection.'
         }, { status: 502 });
       }
     }
